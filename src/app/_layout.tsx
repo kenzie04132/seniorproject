@@ -30,6 +30,7 @@ function RootNavigator() {
       {/* Only signed-in users can reach the main app */}
       <Stack.Protected guard={!!user}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="item-form" options={{ presentation: 'modal' }} />
       </Stack.Protected>
 
       {/* Only signed-out users can reach the login screens */}
