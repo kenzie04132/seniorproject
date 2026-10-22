@@ -1,14 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,21 +18,21 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
 import {
-    addPantryItem,
-    capitalize,
-    CATEGORIES,
-    deletePantryItem,
-    formatDateInput,
-    getPantryItem,
-    parseDateInput,
-    UNITS,
-    updatePantryItem,
+  addPantryItem,
+  capitalize,
+  CATEGORIES,
+  deletePantryItem,
+  formatDateInput,
+  getPantryItem,
+  parseDateInput,
+  UNITS,
+  updatePantryItem,
 } from '@/lib/pantry';
 import { Category, Unit } from '@/types/models';
 
-// One screen for both adding and editing.
-// /item-form          -> add a new item
-// /item-form?id=abc   -> edit (or delete) item abc
+import { BarcodeScanner } from '@/components/barcode-scanner';
+import { lookupBarcode } from '@/lib/barcode';
+
 export default function ItemFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEditing = !!id;
@@ -44,6 +44,9 @@ export default function ItemFormScreen() {
   const [unit, setUnit] = useState<Unit>('count');
   const [category, setCategory] = useState<Category>('produce');
   const [expiration, setExpiration] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [lookingUp, setLookingUp] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
@@ -62,6 +65,7 @@ export default function ItemFormScreen() {
         setUnit(item.unit);
         setCategory(item.category);
         setExpiration(formatDateInput(item.expirationDate));
+        setBarcode(item.barcode ?? '');
       })
       .catch(() => setError("Couldn't load this item."))
       .finally(() => setLoading(false));
@@ -93,6 +97,7 @@ export default function ItemFormScreen() {
       unit,
       category,
       expirationDate,
+      barcode: barcode.trim() || null,
     };
 
     setSaving(true);
@@ -100,13 +105,40 @@ export default function ItemFormScreen() {
       if (id) {
         await updatePantryItem(user.uid, id, item);
       } else {
-        await addPantryItem(user.uid, { ...item, barcode: null, lowStockThreshold: null });
+        await addPantryItem(user.uid, { ...item, lowStockThreshold: null });
       }
       close();
     } catch {
       setError("Couldn't save. Check your internet connection and try again.");
       setSaving(false);
     }
+  }
+
+  // Fill in the name and category from Open Food Facts
+  async function handleLookup(code = barcode) {
+    if (!code.trim()) return setError('Enter a barcode first.');
+    setError('');
+    setLookingUp(true);
+    try {
+      const product = await lookupBarcode(code);
+      if (!product) {
+        setError("We couldn't find that barcode. You can type the details instead.");
+        return;
+      }
+      setName(product.name);
+      setCategory(product.category);
+    } catch {
+      setError("Couldn't look up the barcode. Check your internet connection.");
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
+  // The camera found a barcode: close it, show the number, and look it up
+  function handleScanned(code: string) {
+    setScanning(false);
+    setBarcode(code);
+    handleLookup(code);
   }
 
   async function deleteItem() {
@@ -156,6 +188,28 @@ export default function ItemFormScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+          <Pressable style={styles.scanButton} onPress={() => setScanning(true)}>
+            <ThemedText style={styles.saveText}>Scan barcode</ThemedText>
+          </Pressable>
+          <ThemedText type="smallBold">Barcode (optional)</ThemedText>
+          <View style={styles.barcodeRow}>
+            <TextInput
+              style={[inputStyle, styles.barcodeInput]}
+              placeholder="e.g. 0847644008050"
+              placeholderTextColor={theme.textSecondary}
+              keyboardType="number-pad"
+              value={barcode}
+              onChangeText={setBarcode}
+            />
+            <Pressable style={styles.lookupButton} onPress={() => handleLookup()} disabled={lookingUp}>
+              {lookingUp ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <ThemedText style={styles.saveText}>Look up</ThemedText>
+              )}
+            </Pressable>
+          </View>
+
           <ThemedText type="smallBold">Name</ThemedText>
           <TextInput
             style={inputStyle}
@@ -209,6 +263,11 @@ export default function ItemFormScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <BarcodeScanner
+        visible={scanning}
+        onScanned={handleScanned}
+        onClose={() => setScanning(false)}
+      />
     </ThemedView>
   );
 }
@@ -281,6 +340,28 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     fontSize: 16,
     marginBottom: Spacing.two,
+  },
+  scanButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+    marginBottom: Spacing.two,
+  },
+  barcodeRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  barcodeInput: {
+    flex: 1,
+  },
+  lookupButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    marginBottom: Spacing.two,
+    justifyContent: 'center',
   },
   chipRow: {
     flexDirection: 'row',
