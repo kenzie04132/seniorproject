@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { TestDataButtons } from '@/components/test-data-buttons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -30,6 +31,8 @@ export default function PantryScreen() {
             <ThemedText type="linkPrimary">Sign out</ThemedText>
           </Pressable>
         </View>
+
+        <TestDataButtons />
 
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
