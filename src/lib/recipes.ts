@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
  
 import { PantryItem } from "@/types/models";
+import { daysUntil } from "./pantry";
  
 export type RecipeMatch = {
   id: string;
@@ -20,6 +21,7 @@ const MAX_INGREDIENTS = 10;
 export async function recipesWithIngredient(ingredient: string): Promise<MealSummary[]> {
   const query = encodeURIComponent(ingredient.trim().replace(/\s+/g, "_"));
   const response = await fetch(`${API}/filter.php?i=${query}`);
+  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
   const data = await response.json();
   return data.meals ?? []; // TheMealDB sends meals: null when nothing matches
 }
@@ -27,14 +29,22 @@ export async function recipesWithIngredient(ingredient: string): Promise<MealSum
 // Search TheMealDB for every pantry ingredient and combine the results.
 // A recipe found for several ingredients appears once, listing all of them.
 export async function searchRecipesForPantry(items: PantryItem[]): Promise<RecipeMatch[]> {
-  // The pantry list is already soonest-expiring first, so those get searched first
-  const ingredients = [...new Set(items.map((item) => item.normalizedName))].slice(0, MAX_INGREDIENTS);
+  // Skip expired food: we shouldn't suggest cooking with it.
+  // The pantry list is already soonest-expiring first, so those get searched first.
+  const usable = items.filter((item) => (daysUntil(item.expirationDate) ?? 0) >= 0);
+  const ingredients = [...new Set(usable.map((item) => item.normalizedName))].slice(0, MAX_INGREDIENTS);
+  if (ingredients.length === 0) return [];
  
-  const results = await Promise.all(ingredients.map((ingredient) => recipesWithIngredient(ingredient)));
+  // allSettled: if one ingredient's search fails, still show recipes from the others
+  const results = await Promise.allSettled(ingredients.map((ingredient) => recipesWithIngredient(ingredient)));
+  if (results.every((result) => result.status === "rejected")) {
+    throw new Error("Every recipe search failed");
+  }
  
   const matches = new Map<string, RecipeMatch>();
-  results.forEach((meals, i) => {
-    for (const meal of meals) {
+  results.forEach((result, i) => {
+    if (result.status === "rejected") return;
+    for (const meal of result.value) {
       const match = matches.get(meal.idMeal) ?? {
         id: meal.idMeal,
         name: meal.strMeal,
