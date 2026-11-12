@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Href, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -101,12 +101,12 @@ export default function RecipeScreen() {
             {(recipe.youtube || recipe.source) && (
               <View style={styles.links}>
                 {recipe.youtube && (
-                  <ExternalLink href={recipe.youtube}>
+                  <ExternalLink href={recipe.youtube as Href & string}>
                     <ThemedText type="linkPrimary">Watch the video</ThemedText>
                   </ExternalLink>
                 )}
                 {recipe.source && (
-                  <ExternalLink href={recipe.source}>
+                  <ExternalLink href={recipe.source as Href & string}>
                     <ThemedText type="linkPrimary">See the original recipe</ThemedText>
                   </ExternalLink>
                 )}
