@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { PantryItem } from "@/types/models";
-import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
+import { AREA_BONUS, byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
 import { daysUntil } from "./pantry";
+import { RecipePreferences } from "./preferences";
 
 export type { RankedRecipe } from "./matching";
 
@@ -39,6 +40,14 @@ async function recipeIngredients(id: string): Promise<string[]> {
   return list;
 }
 
+// Ids of every recipe from one region, e.g. all "Mexican" recipes
+async function recipeIdsFromArea(area: string): Promise<Set<string>> {
+  const response = await fetch(`${API}/filter.php?a=${encodeURIComponent(area)}`);
+  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
+  const data = await response.json();
+  return new Set((data.meals ?? []).map((meal: MealSummary) => meal.idMeal));
+}
+
 // Every ingredient name TheMealDB knows (about 600). Loaded once, then reused.
 let knownIngredients: Promise<string[]> | null = null;
 function loadKnownIngredients() {
@@ -53,8 +62,16 @@ function loadKnownIngredients() {
 }
 
 // Find recipes for the pantry and rank them so soonest-expiring food gets used first.
-export async function searchRecipesForPantry(items: PantryItem[]): Promise<RankedRecipe[]> {
+export async function searchRecipesForPantry(
+  items: PantryItem[],
+  prefs: RecipePreferences
+): Promise<RankedRecipe[]> {
   const known = await loadKnownIngredients();
+  // If the region list fails to load, just rank without the region bonus
+  const areaIds = prefs.preferredArea
+    ? await recipeIdsFromArea(prefs.preferredArea).catch(() => new Set<string>())
+    : new Set<string>();
+  const hidden = new Set(prefs.hiddenRecipeIds);
 
   // Skip expired food: we shouldn't suggest cooking with it.
   // Map each item to TheMealDB's name ("Tyson Chicken Breast" -> "chicken breast").
@@ -82,18 +99,19 @@ export async function searchRecipesForPantry(items: PantryItem[]): Promise<Ranke
   results.forEach((result, i) => {
     if (result.status === "rejected") return;
     for (const meal of result.value) {
+      if (hidden.has(meal.idMeal)) continue; // user said "Not interested"
       const entry = candidates.get(meal.idMeal) ?? { meal, matched: [] };
       entry.matched.push({ name: searched[i], daysLeft: soonest.get(searched[i]) ?? null });
       candidates.set(meal.idMeal, entry);
     }
   });
 
-  // First pass: keep the candidates with the most urgency points,
+  // First pass: keep the candidates with the most urgency points (plus the region bonus),
   // so we only look up full details for the best few
-  const urgency = (matched: MatchedIngredient[]) =>
-    matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
+  const quickScore = ({ meal, matched }: { meal: MealSummary; matched: MatchedIngredient[] }) =>
+    matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0) + (areaIds.has(meal.idMeal) ? AREA_BONUS : 0);
   const shortlist = [...candidates.values()]
-    .sort((a, b) => urgency(b.matched) - urgency(a.matched) || b.matched.length - a.matched.length)
+    .sort((a, b) => quickScore(b) - quickScore(a) || b.matched.length - a.matched.length)
     .slice(0, MAX_RESULTS);
 
   // Second pass: get each recipe's full ingredient list and score it
@@ -105,7 +123,8 @@ export async function searchRecipesForPantry(items: PantryItem[]): Promise<Ranke
         { id: meal.idMeal, name: meal.strMeal, thumbnail: meal.strMealThumb },
         matched,
         ingredients,
-        pantryNames
+        pantryNames,
+        areaIds.has(meal.idMeal)
       );
     })
   );
@@ -113,19 +132,22 @@ export async function searchRecipesForPantry(items: PantryItem[]): Promise<Ranke
 }
 
 // Re-runs the search whenever the pantry changes
-export function useRecipeMatches(items: PantryItem[], pantryLoading: boolean) {
+export function useRecipeMatches(items: PantryItem[], prefs: RecipePreferences, waiting: boolean) {
   const [recipes, setRecipes] = useState<RankedRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   // Search again when names or expiration dates change, not on every quantity edit
-  const key = items.map((item) => `${item.name}@${item.expirationDate?.toMillis() ?? ""}`).join("|");
+  // or when the user hides a recipe or picks a region
+  const key =
+    items.map((item) => `${item.name}@${item.expirationDate?.toMillis() ?? ""}`).join("|") +
+    `#${prefs.preferredArea}#${prefs.hiddenRecipeIds.join(",")}`;
 
   useEffect(() => {
-    if (pantryLoading) return;
+    if (waiting) return;
     let cancelled = false;
     setLoading(true);
-    searchRecipesForPantry(items)
+    searchRecipesForPantry(items, prefs)
       .then((list) => {
         if (cancelled) return;
         setRecipes(list);
@@ -141,7 +163,7 @@ export function useRecipeMatches(items: PantryItem[], pantryLoading: boolean) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, pantryLoading]);
+  }, [key, waiting]);
 
   return { recipes, loading, error };
 }

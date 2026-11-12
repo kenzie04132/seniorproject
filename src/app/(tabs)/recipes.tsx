@@ -1,38 +1,55 @@
 import { Image } from 'expo-image';
-import { ActivityIndicator, FlatList, Platform, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
- 
+
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { capitalize, expiryColor, expiryLabel, usePantryItems } from '@/lib/pantry';
+import { hideRecipe, loadAreas, setPreferredArea, showHiddenRecipes, useRecipePreferences } from '@/lib/preferences';
 import { RankedRecipe, useRecipeMatches } from '@/lib/recipes';
- 
+
 export default function RecipesScreen() {
   const { user } = useAuth();
+  const uid = user?.uid ?? '';
   const pantry = usePantryItems(user?.uid);
-  const { recipes, loading, error } = useRecipeMatches(pantry.items, pantry.loading);
- 
+  const { prefs, loading: prefsLoading } = useRecipePreferences(user?.uid);
+  const { recipes, loading, error } = useRecipeMatches(pantry.items, prefs, pantry.loading || prefsLoading);
+
+  // Hide a recipe right away, without waiting for the search to run again
+  const hidden = new Set(prefs.hiddenRecipeIds);
+  const visible = recipes.filter((recipe) => !hidden.has(recipe.id));
+
+  // Only show the full-screen spinner the first time. After that, keep the old list
+  // on screen while new results load, so hiding a recipe doesn't make the list flash.
+  const firstLoad = (loading && recipes.length === 0) || pantry.loading || prefsLoading;
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <ThemedText type="subtitle">My Recipes</ThemedText>
+          <View style={styles.titleRow}>
+            <ThemedText type="subtitle">My Recipes</ThemedText>
+            {loading && !firstLoad && <ActivityIndicator color="#2e7d32" />}
+          </View>
           <ThemedText type="small" themeColor="textSecondary">
             Ranked to use up your soonest-expiring food first
           </ThemedText>
         </View>
- 
-        {loading || pantry.loading ? (
+
+        <RegionPicker selected={prefs.preferredArea} onSelect={(area) => setPreferredArea(uid, area)} />
+
+        {firstLoad ? (
           <ActivityIndicator style={styles.message} color="#2e7d32" />
         ) : error || pantry.error ? (
           <ThemedText style={[styles.message, styles.error]}>{error || pantry.error}</ThemedText>
         ) : (
           <FlatList
-            data={recipes}
+            data={visible}
             keyExtractor={(recipe) => recipe.id}
-            renderItem={({ item }) => <RecipeCard recipe={item} />}
+            renderItem={({ item }) => <RecipeCard recipe={item} onHide={() => hideRecipe(uid, item.id)} />}
             contentContainerStyle={styles.list}
             ListEmptyComponent={
               <ThemedText themeColor="textSecondary" style={styles.message}>
@@ -41,14 +58,57 @@ export default function RecipesScreen() {
                   : 'No recipes found for the items in your pantry.'}
               </ThemedText>
             }
+            ListFooterComponent={
+              hidden.size > 0 ? (
+                <Pressable onPress={() => showHiddenRecipes(uid)} hitSlop={8} style={styles.footer}>
+                  <ThemedText type="small" style={styles.link}>
+                    Show {hidden.size} hidden {hidden.size === 1 ? 'recipe' : 'recipes'} again
+                  </ThemedText>
+                </Pressable>
+              ) : null
+            }
           />
         )}
       </SafeAreaView>
     </ThemedView>
   );
 }
- 
-function RecipeCard({ recipe }: { recipe: RankedRecipe }) {
+
+// A row of region chips: "Any region", "American", "British", ...
+function RegionPicker({ selected, onSelect }: { selected: string | null; onSelect: (area: string | null) => void }) {
+  const [areas, setAreas] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadAreas()
+      .then(setAreas)
+      .catch(() => setAreas([])); // no internet: just don't show the regions
+  }, []);
+
+  if (areas.length === 0) return null;
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+      <RegionChip label="Any region" selected={selected === null} onPress={() => onSelect(null)} />
+      {areas.map((area) => (
+        <RegionChip key={area} label={area} selected={selected === area} onPress={() => onSelect(area)} />
+      ))}
+    </ScrollView>
+  );
+}
+
+function RegionChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress}>
+      <ThemedView type={selected ? undefined : 'backgroundElement'} style={[styles.regionChip, selected && styles.regionChipSelected]}>
+        <ThemedText type="small" style={selected && styles.regionChipSelectedText}>
+          {label}
+        </ThemedText>
+      </ThemedView>
+    </Pressable>
+  );
+}
+
+function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
   return (
     <ThemedView type="backgroundElement" style={styles.card}>
       <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
@@ -70,10 +130,15 @@ function RecipeCard({ recipe }: { recipe: RankedRecipe }) {
           You have {recipe.haveCount} of {recipe.totalCount} ingredients
         </ThemedText>
       </View>
+      <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
+        <ThemedText type="small" themeColor="textSecondary">
+          Not interested
+        </ThemedText>
+      </Pressable>
     </ThemedView>
   );
 }
- 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -89,7 +154,37 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  chipRow: {
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.three,
+  },
+  regionChip: {
+    borderRadius: 16,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  regionChipSelected: {
+    backgroundColor: '#2e7d32',
+  },
+  regionChipSelectedText: {
+    color: '#ffffff',
+  },
+  hideButton: {
+    alignSelf: 'flex-start',
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: Spacing.three,
+  },
+  link: {
+    color: '#2e7d32',
   },
   list: {
     gap: Spacing.two + Spacing.one,

@@ -13,7 +13,10 @@
 //        later, or no date         -> 1
 //   2. Add a "coverage bonus" of 0-3 points for how much of the recipe
 //      you already have (have all of it = +3, half = +1.5, ...).
-//   3. Highest score first. Ties go to the recipe you have more of, then A-Z.
+//   3. Add 2 points if the recipe is from the region the user picked
+//      (about the same as one item expiring in 8-14 days, so using up
+//      food that's about to go bad still matters most).
+//   4. Highest score first. Ties go to the recipe you have more of, then A-Z.
 //
 // So a recipe that uses chicken expiring today beats one that only uses rice,
 // and between two recipes that use the same chicken, the one needing
@@ -32,11 +35,15 @@ export type RankedRecipe = {
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
+  fromPreferredArea: boolean; // from the region the user picked
   score: number;
 };
 
 // Things almost every kitchen has. They don't count as "missing".
 const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
+
+// Extra points for recipes from the user's region
+export const AREA_BONUS = 2;
 
 export function urgencyPoints(daysLeft: number | null) {
   if (daysLeft === null) return 1;
@@ -88,7 +95,8 @@ export function scoreRecipe(
   recipe: { id: string; name: string; thumbnail: string },
   matchedIngredients: MatchedIngredient[],
   recipeIngredients: string[],
-  pantryNames: string[]
+  pantryNames: string[],
+  fromPreferredArea = false
 ): RankedRecipe {
   const counted = recipeIngredients.filter((ing) => !STAPLES.has(simplifyName(ing)));
   const missingIngredients = counted.filter((ing) => !pantryHas(ing, pantryNames));
@@ -97,6 +105,7 @@ export function scoreRecipe(
 
   const urgency = matchedIngredients.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
   const coverageBonus = totalCount === 0 ? 0 : 3 * (haveCount / totalCount);
+  const areaBonus = fromPreferredArea ? AREA_BONUS : 0;
 
   return {
     ...recipe,
@@ -107,7 +116,8 @@ export function scoreRecipe(
     haveCount,
     totalCount,
     missingIngredients,
-    score: Math.round((urgency + coverageBonus) * 10) / 10,
+    fromPreferredArea,
+    score: Math.round((urgency + coverageBonus + areaBonus) * 10) / 10,
   };
 }
 
