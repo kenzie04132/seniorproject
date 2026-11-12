@@ -67,7 +67,7 @@ function RecipeCard({ recipe }: { recipe: RankedRecipe }) {
           ))}
         </View>
         <ThemedText type="small" themeColor="textSecondary">
-          You have {recipe.haveCount} of {recipe.totalCount} ingredients · Score {recipe.score}
+          You have {recipe.haveCount} of {recipe.totalCount} ingredients
         </ThemedText>
       </View>
     </ThemedView>
