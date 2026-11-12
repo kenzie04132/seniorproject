@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
- 
+
 import { PantryItem } from "@/types/models";
+import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
 import { daysUntil } from "./pantry";
- 
-export type RecipeMatch = {
-  id: string;
-  name: string;
-  thumbnail: string;
-  matchedIngredients: string[]; // pantry items this recipe uses, e.g. ["chicken breast", "milk"]
-};
- 
+
+export type { RankedRecipe } from "./matching";
+
 type MealSummary = { idMeal: string; strMeal: string; strMealThumb: string };
- 
+
 const API = "https://www.themealdb.com/api/json/v1/1";
- 
-// Only search for this many pantry items so we don't send dozens of requests at once
+
+// Only search for this many pantry ingredients so we don't send dozens of requests at once
 const MAX_INGREDIENTS = 10;
- 
+
+// Only look up the full ingredient list for this many of the best candidates
+const MAX_RESULTS = 15;
+
 // All recipes that use one ingredient. TheMealDB wants "chicken_breast", not "chicken breast".
 export async function recipesWithIngredient(ingredient: string): Promise<MealSummary[]> {
   const query = encodeURIComponent(ingredient.trim().replace(/\s+/g, "_"));
@@ -25,53 +24,103 @@ export async function recipesWithIngredient(ingredient: string): Promise<MealSum
   const data = await response.json();
   return data.meals ?? []; // TheMealDB sends meals: null when nothing matches
 }
- 
-// Search TheMealDB for every pantry ingredient and combine the results.
-// A recipe found for several ingredients appears once, listing all of them.
-export async function searchRecipesForPantry(items: PantryItem[]): Promise<RecipeMatch[]> {
+
+// One recipe's full ingredient list, e.g. ["Chicken Breast", "Spinach", "Garlic"]
+async function recipeIngredients(id: string): Promise<string[]> {
+  const response = await fetch(`${API}/lookup.php?i=${id}`);
+  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
+  const meal = (await response.json()).meals?.[0];
+  if (!meal) return [];
+  const list: string[] = [];
+  for (let n = 1; n <= 20; n++) {
+    const ingredient = meal[`strIngredient${n}`]?.trim();
+    if (ingredient) list.push(ingredient);
+  }
+  return list;
+}
+
+// Every ingredient name TheMealDB knows (about 600). Loaded once, then reused.
+let knownIngredients: Promise<string[]> | null = null;
+function loadKnownIngredients() {
+  knownIngredients ??= fetch(`${API}/list.php?i=list`)
+    .then((response) => response.json())
+    .then((data) => (data.meals ?? []).map((m: { strIngredient: string }) => m.strIngredient))
+    .catch(() => {
+      knownIngredients = null; // try again next time
+      return [];
+    });
+  return knownIngredients;
+}
+
+// Find recipes for the pantry and rank them so soonest-expiring food gets used first.
+export async function searchRecipesForPantry(items: PantryItem[]): Promise<RankedRecipe[]> {
+  const known = await loadKnownIngredients();
+
   // Skip expired food: we shouldn't suggest cooking with it.
-  // The pantry list is already soonest-expiring first, so those get searched first.
-  const usable = items.filter((item) => (daysUntil(item.expirationDate) ?? 0) >= 0);
-  const ingredients = [...new Set(usable.map((item) => item.normalizedName))].slice(0, MAX_INGREDIENTS);
-  if (ingredients.length === 0) return [];
- 
+  // Map each item to TheMealDB's name ("Tyson Chicken Breast" -> "chicken breast").
+  // The pantry is sorted soonest-expiring first, so the first item with a name
+  // tells us how soon that ingredient expires.
+  const soonest = new Map<string, number | null>();
+  for (const item of items) {
+    const daysLeft = daysUntil(item.expirationDate);
+    if (daysLeft !== null && daysLeft < 0) continue;
+    const name = toMealDbName(item.name, known);
+    if (!soonest.has(name)) soonest.set(name, daysLeft);
+  }
+  const pantryNames = [...soonest.keys()];
+  const searched = pantryNames.slice(0, MAX_INGREDIENTS);
+  if (searched.length === 0) return [];
+
   // allSettled: if one ingredient's search fails, still show recipes from the others
-  const results = await Promise.allSettled(ingredients.map((ingredient) => recipesWithIngredient(ingredient)));
+  const results = await Promise.allSettled(searched.map((name) => recipesWithIngredient(name)));
   if (results.every((result) => result.status === "rejected")) {
     throw new Error("Every recipe search failed");
   }
- 
-  const matches = new Map<string, RecipeMatch>();
+
+  // Combine: a recipe found for several ingredients appears once, listing all of them
+  const candidates = new Map<string, { meal: MealSummary; matched: MatchedIngredient[] }>();
   results.forEach((result, i) => {
     if (result.status === "rejected") return;
     for (const meal of result.value) {
-      const match = matches.get(meal.idMeal) ?? {
-        id: meal.idMeal,
-        name: meal.strMeal,
-        thumbnail: meal.strMealThumb,
-        matchedIngredients: [],
-      };
-      match.matchedIngredients.push(ingredients[i]);
-      matches.set(meal.idMeal, match);
+      const entry = candidates.get(meal.idMeal) ?? { meal, matched: [] };
+      entry.matched.push({ name: searched[i], daysLeft: soonest.get(searched[i]) ?? null });
+      candidates.set(meal.idMeal, entry);
     }
   });
- 
-  // For now, recipes that use more of your pantry come first.
-  // Week 9 replaces this with the expiring-first ranking.
-  return [...matches.values()].sort(
-    (a, b) => b.matchedIngredients.length - a.matchedIngredients.length || a.name.localeCompare(b.name)
+
+  // First pass: keep the candidates with the most urgency points,
+  // so we only look up full details for the best few
+  const urgency = (matched: MatchedIngredient[]) =>
+    matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
+  const shortlist = [...candidates.values()]
+    .sort((a, b) => urgency(b.matched) - urgency(a.matched) || b.matched.length - a.matched.length)
+    .slice(0, MAX_RESULTS);
+
+  // Second pass: get each recipe's full ingredient list and score it
+  const ranked = await Promise.all(
+    shortlist.map(async ({ meal, matched }) => {
+      // If the details don't load, still score it using only what we matched
+      const ingredients = await recipeIngredients(meal.idMeal).catch(() => matched.map((m) => m.name));
+      return scoreRecipe(
+        { id: meal.idMeal, name: meal.strMeal, thumbnail: meal.strMealThumb },
+        matched,
+        ingredients,
+        pantryNames
+      );
+    })
   );
+  return ranked.sort(byBestMatch);
 }
- 
+
 // Re-runs the search whenever the pantry changes
 export function useRecipeMatches(items: PantryItem[], pantryLoading: boolean) {
-  const [recipes, setRecipes] = useState<RecipeMatch[]>([]);
+  const [recipes, setRecipes] = useState<RankedRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
- 
-  // Only search again when the ingredient names change, not on every quantity edit
-  const key = items.map((item) => item.normalizedName).join("|");
- 
+
+  // Search again when names or expiration dates change, not on every quantity edit
+  const key = items.map((item) => `${item.name}@${item.expirationDate?.toMillis() ?? ""}`).join("|");
+
   useEffect(() => {
     if (pantryLoading) return;
     let cancelled = false;
@@ -93,7 +142,6 @@ export function useRecipeMatches(items: PantryItem[], pantryLoading: boolean) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, pantryLoading]);
- 
+
   return { recipes, loading, error };
 }
- 

@@ -6,8 +6,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
-import { usePantryItems } from '@/lib/pantry';
-import { RecipeMatch, useRecipeMatches } from '@/lib/recipes';
+import { capitalize, expiryColor, expiryLabel, usePantryItems } from '@/lib/pantry';
+import { RankedRecipe, useRecipeMatches } from '@/lib/recipes';
  
 export default function RecipesScreen() {
   const { user } = useAuth();
@@ -19,6 +19,9 @@ export default function RecipesScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <ThemedText type="subtitle">My Recipes</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Ranked to use up your soonest-expiring food first
+          </ThemedText>
         </View>
  
         {loading || pantry.loading ? (
@@ -45,9 +48,7 @@ export default function RecipesScreen() {
   );
 }
  
-function RecipeCard({ recipe }: { recipe: RecipeMatch }) {
-  const count = recipe.matchedIngredients.length;
- 
+function RecipeCard({ recipe }: { recipe: RankedRecipe }) {
   return (
     <ThemedView type="backgroundElement" style={styles.card}>
       <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
@@ -55,8 +56,18 @@ function RecipeCard({ recipe }: { recipe: RecipeMatch }) {
         <ThemedText type="smallBold" style={styles.recipeName}>
           {recipe.name}
         </ThemedText>
+        <View style={styles.chips}>
+          {recipe.matchedIngredients.map((ing) => (
+            <ThemedText
+              key={ing.name}
+              type="small"
+              style={[styles.chip, { borderColor: expiryColor(ing.daysLeft), color: expiryColor(ing.daysLeft) }]}>
+              {capitalize(ing.name)} · {expiryLabel(ing.daysLeft)}
+            </ThemedText>
+          ))}
+        </View>
         <ThemedText type="small" themeColor="textSecondary">
-          Uses {count} pantry {count === 1 ? 'item' : 'items'}: {recipe.matchedIngredients.join(', ')}
+          You have {recipe.haveCount} of {recipe.totalCount} ingredients · Score {recipe.score}
         </ThemedText>
       </View>
     </ThemedView>
@@ -103,6 +114,18 @@ const styles = StyleSheet.create({
   },
   recipeName: {
     fontSize: 16,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
+  chip: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 1,
+    fontSize: 12,
   },
   message: {
     marginTop: Spacing.five,
