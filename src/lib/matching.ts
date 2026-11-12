@@ -14,6 +14,11 @@
 //   2. Add a "coverage bonus" of 0-3 points for how much of the recipe
 //      you already have (have all of it = +3, half = +1.5, ...).
 //   3. Highest score first. Ties go to the recipe you have more of, then A-Z.
+//
+// Each recipe also gets a difficulty (Easy / Medium / Hard), worked out from
+// how many ingredients it needs and how long its instructions are,
+// so users can filter for quick meals.
+//
 //   4. If the user picked regions, recipes from those regions that use their
 //      food come first (still sorted by score), then everything else.
 //
@@ -34,12 +39,26 @@ export type RankedRecipe = {
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
+  difficulty: Difficulty;
   preferredArea: string | null; // which of the user's picked regions it's from, e.g. "Italian"
   score: number;
 };
 
 // Things almost every kitchen has. They don't count as "missing".
 const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
+
+export type Difficulty = "Easy" | "Medium" | "Hard";
+
+// TheMealDB has no difficulty rating, so estimate one:
+//   Easy = 8 or fewer ingredients and short instructions (150 words or less)
+//   Hard = 13 or more ingredients, or long instructions (over 350 words)
+//   Medium = everything in between (or if we couldn't load the instructions)
+export function recipeDifficulty(ingredientCount: number, instructionWords: number): Difficulty {
+  if (instructionWords === 0) return "Medium";
+  if (ingredientCount <= 8 && instructionWords <= 150) return "Easy";
+  if (ingredientCount >= 13 || instructionWords > 350) return "Hard";
+  return "Medium";
+}
 
 export function urgencyPoints(daysLeft: number | null) {
   if (daysLeft === null) return 1;
@@ -92,7 +111,8 @@ export function scoreRecipe(
   matchedIngredients: MatchedIngredient[],
   recipeIngredients: string[],
   pantryNames: string[],
-  preferredArea: string | null = null
+  preferredArea: string | null = null,
+  instructionWords = 0
 ): RankedRecipe {
   const counted = recipeIngredients.filter((ing) => !STAPLES.has(simplifyName(ing)));
   const missingIngredients = counted.filter((ing) => !pantryHas(ing, pantryNames));
@@ -111,6 +131,7 @@ export function scoreRecipe(
     haveCount,
     totalCount,
     missingIngredients,
+    difficulty: recipeDifficulty(counted.length, instructionWords),
     preferredArea,
     score: Math.round((urgency + coverageBonus) * 10) / 10,
   };

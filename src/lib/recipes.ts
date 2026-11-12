@@ -14,8 +14,9 @@ const API = "https://www.themealdb.com/api/json/v1/1";
 // Only search for this many pantry ingredients so we don't send dozens of requests at once
 const MAX_INGREDIENTS = 10;
 
-// Only look up the full ingredient list for this many of the best candidates
-const MAX_RESULTS = 15;
+// Only look up the full recipe for this many of the best candidates
+// (enough that filtering for Easy recipes still leaves a good list)
+const MAX_RESULTS = 25;
 
 // All recipes that use one ingredient. TheMealDB wants "chicken_breast", not "chicken breast".
 export async function recipesWithIngredient(ingredient: string): Promise<MealSummary[]> {
@@ -69,12 +70,6 @@ export async function getRecipeDetails(id: string): Promise<RecipeDetails | null
     youtube: meal.strYoutube || null,
     source: meal.strSource || null,
   };
-}
-
-// One recipe's full ingredient list, e.g. ["Chicken Breast", "Spinach", "Garlic"]
-async function recipeIngredients(id: string): Promise<string[]> {
-  const details = await getRecipeDetails(id);
-  return details ? details.ingredients.map((ing) => ing.name) : [];
 }
 
 // Ids of every recipe from one region, e.g. all "Mexican" recipes
@@ -169,17 +164,20 @@ export async function searchRecipesForPantry(
     )
     .slice(0, MAX_RESULTS);
 
-  // Second pass: get each recipe's full ingredient list and score it
+  // Second pass: get each full recipe and score it
   const ranked = await Promise.all(
     shortlist.map(async ({ meal, matched }) => {
       // If the details don't load, still score it using only what we matched
-      const ingredients = await recipeIngredients(meal.idMeal).catch(() => matched.map((m) => m.name));
+      const details = await getRecipeDetails(meal.idMeal).catch(() => null);
+      const ingredients = details ? details.ingredients.map((ing) => ing.name) : matched.map((m) => m.name);
+      const instructionWords = details ? details.steps.join(" ").split(/\s+/).length : 0;
       return scoreRecipe(
         { id: meal.idMeal, name: meal.strMeal, thumbnail: meal.strMealThumb },
         matched,
         ingredients,
         pantryNames,
-        areaOf.get(meal.idMeal) ?? null
+        areaOf.get(meal.idMeal) ?? null,
+        instructionWords
       );
     })
   );

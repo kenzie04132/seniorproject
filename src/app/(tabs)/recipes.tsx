@@ -17,6 +17,7 @@ import {
   togglePreferredArea,
   useRecipePreferences,
 } from '@/lib/preferences';
+import { Difficulty } from '@/lib/matching';
 import { RankedRecipe, useRecipeMatches } from '@/lib/recipes';
 
 export default function RecipesScreen() {
@@ -28,7 +29,10 @@ export default function RecipesScreen() {
 
   // Hide a recipe right away, without waiting for the search to run again
   const hidden = new Set(prefs.hiddenRecipeIds);
-  const visible = recipes.filter((recipe) => !hidden.has(recipe.id));
+  const [difficulty, setDifficulty] = useState<Difficulty | 'Any'>('Any');
+  const visible = recipes.filter(
+    (recipe) => !hidden.has(recipe.id) && (difficulty === 'Any' || recipe.difficulty === difficulty),
+  );
 
   // Only show the full-screen spinner the first time. After that, keep the old list
   // on screen while new results load, so hiding a recipe doesn't make the list flash.
@@ -47,11 +51,14 @@ export default function RecipesScreen() {
           </ThemedText>
         </View>
 
-        <RegionPicker
-          selected={prefs.preferredAreas}
-          onToggle={(area, on) => togglePreferredArea(uid, area, on)}
-          onClear={() => clearPreferredAreas(uid)}
-        />
+        <View style={styles.filters}>
+          <RegionPicker
+            selected={prefs.preferredAreas}
+            onToggle={(area, on) => togglePreferredArea(uid, area, on)}
+            onClear={() => clearPreferredAreas(uid)}
+          />
+          <DifficultyFilter selected={difficulty} onSelect={setDifficulty} />
+        </View>
 
         {firstLoad ? (
           <ActivityIndicator style={styles.message} color="#2e7d32" />
@@ -78,7 +85,9 @@ export default function RecipesScreen() {
               <ThemedText themeColor="textSecondary" style={styles.message}>
                 {pantry.items.length === 0
                   ? 'Add items to your pantry to see recipes you can make.'
-                  : 'No recipes found for the items in your pantry.'}
+                  : difficulty !== 'Any' && recipes.length > 0
+                    ? `No ${difficulty.toLowerCase()} recipes for the food in your pantry right now.`
+                    : 'No recipes found for the items in your pantry.'}
               </ThemedText>
             }
             ListFooterComponent={
@@ -193,6 +202,35 @@ function RegionPicker({
   );
 }
 
+// Any / Easy / Medium / Hard: only show recipes of that difficulty
+function DifficultyFilter({
+  selected,
+  onSelect,
+}: {
+  selected: Difficulty | 'Any';
+  onSelect: (difficulty: Difficulty | 'Any') => void;
+}) {
+  const options: (Difficulty | 'Any')[] = ['Any', 'Easy', 'Medium', 'Hard'];
+  return (
+    <View style={styles.difficultyRow}>
+      {options.map((option) => {
+        const isSelected = option === selected;
+        return (
+          <Pressable key={option} onPress={() => onSelect(option)}>
+            <ThemedView
+              type={isSelected ? undefined : 'backgroundElement'}
+              style={[styles.regionButton, isSelected && styles.regionSelected]}>
+              <ThemedText type="small" style={isSelected && styles.regionSelectedText}>
+                {option === 'Any' ? 'Any difficulty' : option}
+              </ThemedText>
+            </ThemedView>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
   return (
     // Tap anywhere on the card to open the full recipe
@@ -214,7 +252,7 @@ function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => vo
             ))}
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            You have {recipe.haveCount} of {recipe.totalCount} ingredients
+            {recipe.difficulty} · You have {recipe.haveCount} of {recipe.totalCount} ingredients
           </ThemedText>
           {recipe.preferredArea && (
             <ThemedText type="small" style={styles.areaTag}>
@@ -253,10 +291,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
-  regionRow: {
+  filters: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.three,
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+  },
+  regionRow: {
+    flexDirection: 'row',
+  },
+  difficultyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
   },
   regionButton: {
     borderRadius: 16,
