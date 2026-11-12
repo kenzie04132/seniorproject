@@ -26,18 +26,55 @@ export async function recipesWithIngredient(ingredient: string): Promise<MealSum
   return data.meals ?? []; // TheMealDB sends meals: null when nothing matches
 }
 
-// One recipe's full ingredient list, e.g. ["Chicken Breast", "Spinach", "Garlic"]
-async function recipeIngredients(id: string): Promise<string[]> {
-  const response = await fetch(`${API}/lookup.php?i=${id}`);
+export type RecipeDetails = {
+  id: string;
+  name: string;
+  thumbnail: string;
+  category: string; // e.g. "Chicken"
+  area: string; // e.g. "Italian"
+  ingredients: { name: string; measure: string }[]; // e.g. { name: "Rice", measure: "2 cups" }
+  steps: string[]; // the instructions, one paragraph per step
+  youtube: string | null;
+  source: string | null; // the website the recipe came from
+};
+
+// Everything about one recipe, for the recipe page
+export async function getRecipeDetails(id: string): Promise<RecipeDetails | null> {
+  const response = await fetch(`${API}/lookup.php?i=${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
   const meal = (await response.json()).meals?.[0];
-  if (!meal) return [];
-  const list: string[] = [];
+  if (!meal) return null;
+
+  // TheMealDB stores ingredients as strIngredient1..20 and strMeasure1..20
+  const ingredients: RecipeDetails["ingredients"] = [];
   for (let n = 1; n <= 20; n++) {
-    const ingredient = meal[`strIngredient${n}`]?.trim();
-    if (ingredient) list.push(ingredient);
+    const name = meal[`strIngredient${n}`]?.trim();
+    if (name) ingredients.push({ name, measure: meal[`strMeasure${n}`]?.trim() ?? "" });
   }
-  return list;
+
+  // Split the instructions into paragraphs and drop "STEP 1" style labels
+  const steps = (meal.strInstructions ?? "")
+    .split(/\r?\n/)
+    .map((line: string) => line.trim())
+    .filter((line: string) => line && !/^step\s*\d+$/i.test(line));
+
+  return {
+    id: meal.idMeal,
+    name: meal.strMeal,
+    thumbnail: meal.strMealThumb,
+    category: meal.strCategory ?? "",
+    area: meal.strArea ?? "",
+    ingredients,
+    steps,
+    youtube: meal.strYoutube || null,
+    source: meal.strSource || null,
+  };
+}
+
+// One recipe's full ingredient list, e.g. ["Chicken Breast", "Spinach", "Garlic"]
+async function recipeIngredients(id: string): Promise<string[]> {
+  const details = await getRecipeDetails(id);
+  return details ? details.ingredients.map((ing) => ing.name) : [];
 }
 
 // Ids of every recipe from one region, e.g. all "Mexican" recipes
@@ -62,28 +99,32 @@ function loadKnownIngredients() {
 }
 
 // Find recipes for the pantry and rank them so soonest-expiring food gets used first.
+// The pantry's usable (not expired) food as TheMealDB names, each with how soon it expires.
+// "Tyson Chicken Breast" -> "chicken breast". The pantry is sorted soonest-expiring first,
+// so the first item with a name tells us how soon that ingredient expires.
+export async function usablePantryIngredients(items: PantryItem[]) {
+  const known = await loadKnownIngredients();
+  const soonest = new Map<string, number | null>();
+  for (const item of items) {
+    const daysLeft = daysUntil(item.expirationDate);
+    if (daysLeft !== null && daysLeft < 0) continue; // skip expired food
+    const name = toMealDbName(item.name, known);
+    if (!soonest.has(name)) soonest.set(name, daysLeft);
+  }
+  return soonest;
+}
+
 export async function searchRecipesForPantry(
   items: PantryItem[],
   prefs: RecipePreferences
 ): Promise<RankedRecipe[]> {
-  const known = await loadKnownIngredients();
   // If the region list fails to load, just rank without the region bonus
   const areaIds = prefs.preferredArea
     ? await recipeIdsFromArea(prefs.preferredArea).catch(() => new Set<string>())
     : new Set<string>();
   const hidden = new Set(prefs.hiddenRecipeIds);
 
-  // Skip expired food: we shouldn't suggest cooking with it.
-  // Map each item to TheMealDB's name ("Tyson Chicken Breast" -> "chicken breast").
-  // The pantry is sorted soonest-expiring first, so the first item with a name
-  // tells us how soon that ingredient expires.
-  const soonest = new Map<string, number | null>();
-  for (const item of items) {
-    const daysLeft = daysUntil(item.expirationDate);
-    if (daysLeft !== null && daysLeft < 0) continue;
-    const name = toMealDbName(item.name, known);
-    if (!soonest.has(name)) soonest.set(name, daysLeft);
-  }
+  const soonest = await usablePantryIngredients(items);
   const pantryNames = [...soonest.keys()];
   const searched = pantryNames.slice(0, MAX_INGREDIENTS);
   if (searched.length === 0) return [];

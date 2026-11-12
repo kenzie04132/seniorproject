@@ -31,6 +31,7 @@ function RootNavigator() {
       <Stack.Protected guard={!!user}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="item-form" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="recipe" />
       </Stack.Protected>
 
       {/* Only signed-out users can reach the login screens */}

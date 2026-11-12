@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -99,7 +100,9 @@ function RegionPicker({ selected, onSelect }: { selected: string | null; onSelec
 function RegionChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress}>
-      <ThemedView type={selected ? undefined : 'backgroundElement'} style={[styles.regionChip, selected && styles.regionChipSelected]}>
+      <ThemedView
+        type={selected ? undefined : 'backgroundElement'}
+        style={[styles.regionChip, selected && styles.regionChipSelected]}>
         <ThemedText type="small" style={selected && styles.regionChipSelectedText}>
           {label}
         </ThemedText>
@@ -110,32 +113,35 @@ function RegionChip({ label, selected, onPress }: { label: string; selected: boo
 
 function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
   return (
-    <ThemedView type="backgroundElement" style={styles.card}>
-      <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
-      <View style={styles.cardText}>
-        <ThemedText type="smallBold" style={styles.recipeName}>
-          {recipe.name}
-        </ThemedText>
-        <View style={styles.chips}>
-          {recipe.matchedIngredients.map((ing) => (
-            <ThemedText
-              key={ing.name}
-              type="small"
-              style={[styles.chip, { borderColor: expiryColor(ing.daysLeft), color: expiryColor(ing.daysLeft) }]}>
-              {capitalize(ing.name)} · {expiryLabel(ing.daysLeft)}
-            </ThemedText>
-          ))}
+    // Tap anywhere on the card to open the full recipe
+    <Pressable onPress={() => router.push({ pathname: '/recipe', params: { id: recipe.id } })}>
+      <ThemedView type="backgroundElement" style={styles.card}>
+        <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
+        <View style={styles.cardText}>
+          <ThemedText type="smallBold" style={styles.recipeName}>
+            {recipe.name}
+          </ThemedText>
+          <View style={styles.chips}>
+            {recipe.matchedIngredients.map((ing) => (
+              <ThemedText
+                key={ing.name}
+                type="small"
+                style={[styles.chip, { borderColor: expiryColor(ing.daysLeft), color: expiryColor(ing.daysLeft) }]}>
+                {capitalize(ing.name)} · {expiryLabel(ing.daysLeft)}
+              </ThemedText>
+            ))}
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            You have {recipe.haveCount} of {recipe.totalCount} ingredients
+          </ThemedText>
         </View>
-        <ThemedText type="small" themeColor="textSecondary">
-          You have {recipe.haveCount} of {recipe.totalCount} ingredients
-        </ThemedText>
-      </View>
-      <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
-        <ThemedText type="small" themeColor="textSecondary">
-          Not interested
-        </ThemedText>
-      </Pressable>
-    </ThemedView>
+        <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
+          <ThemedText type="small" themeColor="textSecondary">
+            Not interested
+          </ThemedText>
+        </Pressable>
+      </ThemedView>
+    </Pressable>
   );
 }
 
@@ -230,4 +236,3 @@ const styles = StyleSheet.create({
     color: '#d93025',
   },
 });
- 
