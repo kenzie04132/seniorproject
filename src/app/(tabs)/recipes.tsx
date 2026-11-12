@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -75,39 +75,62 @@ export default function RecipesScreen() {
   );
 }
 
-// A row of region chips: "Any region", "American", "British", ...
+// A "Region: Any ▾" button. Tapping it opens a scrollable list of regions to pick from.
 function RegionPicker({ selected, onSelect }: { selected: string | null; onSelect: (area: string | null) => void }) {
   const [areas, setAreas] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     loadAreas()
       .then(setAreas)
-      .catch(() => setAreas([])); // no internet: just don't show the regions
+      .catch(() => setAreas([])); // no internet: just don't show the region button
   }, []);
 
   if (areas.length === 0) return null;
 
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-      <RegionChip label="Any region" selected={selected === null} onPress={() => onSelect(null)} />
-      {areas.map((area) => (
-        <RegionChip key={area} label={area} selected={selected === area} onPress={() => onSelect(area)} />
-      ))}
-    </ScrollView>
-  );
-}
+  const choose = (area: string | null) => {
+    onSelect(area);
+    setOpen(false);
+  };
 
-function RegionChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress}>
-      <ThemedView
-        type={selected ? undefined : 'backgroundElement'}
-        style={[styles.regionChip, selected && styles.regionChipSelected]}>
-        <ThemedText type="small" style={selected && styles.regionChipSelectedText}>
-          {label}
-        </ThemedText>
-      </ThemedView>
-    </Pressable>
+    <View style={styles.regionRow}>
+      <Pressable onPress={() => setOpen(true)}>
+        <ThemedView
+          type={selected ? undefined : 'backgroundElement'}
+          style={[styles.regionButton, selected && styles.regionSelected]}>
+          <ThemedText type="small" style={selected && styles.regionSelectedText}>
+            Region: {selected ?? 'Any'} ▾
+          </ThemedText>
+        </ThemedView>
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        {/* Tapping the dark background closes the list */}
+        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+          {/* Taps inside the list itself don't close it */}
+          <Pressable style={styles.sheetArea} onPress={(event) => event.stopPropagation()}>
+            <ThemedView style={styles.sheet}>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>
+                Show more recipes from
+              </ThemedText>
+              <FlatList
+                data={[null, ...areas]}
+                keyExtractor={(area) => area ?? 'any'}
+                renderItem={({ item: area }) => (
+                  <Pressable onPress={() => choose(area)} style={styles.regionOption}>
+                    <ThemedText style={area === selected && styles.regionOptionSelected}>
+                      {area ?? 'Any region'}
+                      {area === selected ? '  ✓' : ''}
+                    </ThemedText>
+                  </Pressable>
+                )}
+              />
+            </ThemedView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 
@@ -166,21 +189,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
-  chipRow: {
-    gap: Spacing.two,
+  regionRow: {
+    flexDirection: 'row',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
   },
-  regionChip: {
+  regionButton: {
     borderRadius: 16,
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
   },
-  regionChipSelected: {
+  regionSelected: {
     backgroundColor: '#2e7d32',
   },
-  regionChipSelectedText: {
+  regionSelectedText: {
     color: '#ffffff',
+  },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.four,
+  },
+  sheetArea: {
+    width: '100%',
+    maxWidth: 360,
+    maxHeight: '70%',
+  },
+  sheet: {
+    flexShrink: 1,
+    borderRadius: 12,
+    paddingVertical: Spacing.three,
+  },
+  sheetTitle: {
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.two,
+  },
+  regionOption: {
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+  },
+  regionOptionSelected: {
+    color: '#2e7d32',
+    fontWeight: 'bold',
   },
   hideButton: {
     alignSelf: 'flex-start',

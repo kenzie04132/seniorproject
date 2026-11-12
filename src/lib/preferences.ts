@@ -56,8 +56,8 @@ export async function loadAreas(): Promise<string[]> {
   const response = await fetch("https://www.themealdb.com/api/json/v1/1/list.php?a=list");
   if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
   const data = await response.json();
-  return (data.meals ?? [])
-    .map((m: { strArea: string }) => m.strArea)
-    .filter((area: string) => area && area !== "Unknown")
-    .sort();
+  const areas: string[] = (data.meals ?? [])
+    .map((m: { strArea: string }) => m.strArea?.trim())
+    .filter((area: string) => area && area !== "Unknown");
+  return [...new Set(areas)].sort(); // Set removes duplicates (TheMealDB lists some twice)
 }
