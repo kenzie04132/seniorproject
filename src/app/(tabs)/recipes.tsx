@@ -50,7 +50,17 @@ export default function RecipesScreen() {
           <FlatList
             data={visible}
             keyExtractor={(recipe) => recipe.id}
-            renderItem={({ item }) => <RecipeCard recipe={item} onHide={() => hideRecipe(uid, item.id)} />}
+            renderItem={({ item }) => (
+              <RecipeCard recipe={item} area={prefs.preferredArea} onHide={() => hideRecipe(uid, item.id)} />
+            )}
+            ListHeaderComponent={
+              // Explain when the picked region has no recipes that use this pantry's food
+              prefs.preferredArea && !loading && visible.length > 0 && !visible.some((r) => r.fromPreferredArea) ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  No {prefs.preferredArea} recipes use the food in your pantry right now, so here are other ideas.
+                </ThemedText>
+              ) : null
+            }
             contentContainerStyle={styles.list}
             ListEmptyComponent={
               <ThemedText themeColor="textSecondary" style={styles.message}>
@@ -134,7 +144,7 @@ function RegionPicker({ selected, onSelect }: { selected: string | null; onSelec
   );
 }
 
-function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
+function RecipeCard({ recipe, area, onHide }: { recipe: RankedRecipe; area: string | null; onHide: () => void }) {
   return (
     // Tap anywhere on the card to open the full recipe
     <Pressable onPress={() => router.push({ pathname: '/recipe', params: { id: recipe.id } })}>
@@ -157,6 +167,11 @@ function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => vo
           <ThemedText type="small" themeColor="textSecondary">
             You have {recipe.haveCount} of {recipe.totalCount} ingredients
           </ThemedText>
+          {recipe.fromPreferredArea && area && (
+            <ThemedText type="small" style={styles.areaTag}>
+              {area} recipe
+            </ThemedText>
+          )}
         </View>
         <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
           <ThemedText type="small" themeColor="textSecondary">
@@ -231,6 +246,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   regionOptionSelected: {
+    color: '#2e7d32',
+    fontWeight: 'bold',
+  },
+  areaTag: {
     color: '#2e7d32',
     fontWeight: 'bold',
   },

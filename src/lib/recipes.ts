@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { PantryItem } from "@/types/models";
-import { AREA_BONUS, byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
+import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
 import { daysUntil } from "./pantry";
 import { RecipePreferences } from "./preferences";
 
@@ -147,12 +147,18 @@ export async function searchRecipesForPantry(
     }
   });
 
-  // First pass: keep the candidates with the most urgency points (plus the region bonus),
-  // so we only look up full details for the best few
-  const quickScore = ({ meal, matched }: { meal: MealSummary; matched: MatchedIngredient[] }) =>
-    matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0) + (areaIds.has(meal.idMeal) ? AREA_BONUS : 0);
+  // First pass: keep the best few candidates, so we only look up full details for those.
+  // Recipes from the user's region go first, then the ones with the most urgency points.
+  const urgency = (matched: MatchedIngredient[]) =>
+    matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
+  const inArea = (meal: MealSummary) => Number(areaIds.has(meal.idMeal));
   const shortlist = [...candidates.values()]
-    .sort((a, b) => quickScore(b) - quickScore(a) || b.matched.length - a.matched.length)
+    .sort(
+      (a, b) =>
+        inArea(b.meal) - inArea(a.meal) ||
+        urgency(b.matched) - urgency(a.matched) ||
+        b.matched.length - a.matched.length
+    )
     .slice(0, MAX_RESULTS);
 
   // Second pass: get each recipe's full ingredient list and score it
