@@ -15,7 +15,7 @@ export type UserProfile = {
   displayName: string | null;
   dietaryPreferences: string[]; // e.g. ["vegetarian", "gluten-free"]
   hiddenRecipeIds?: string[];    // recipes marked "Not interested" (Week 9)
-  preferredArea?: string | null; // region picked on the Recipes tab, e.g. "Mexican" (Week 9)
+  preferredAreas?: string[];     // regions picked on the Recipes tab, e.g. ["Mexican"] (Week 9)
   createdAt: Timestamp;
 };
 

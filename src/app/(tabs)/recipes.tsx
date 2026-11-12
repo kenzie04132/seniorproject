@@ -9,7 +9,14 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { capitalize, expiryColor, expiryLabel, usePantryItems } from '@/lib/pantry';
-import { hideRecipe, loadAreas, setPreferredArea, showHiddenRecipes, useRecipePreferences } from '@/lib/preferences';
+import {
+  clearPreferredAreas,
+  hideRecipe,
+  loadAreas,
+  showHiddenRecipes,
+  togglePreferredArea,
+  useRecipePreferences,
+} from '@/lib/preferences';
 import { RankedRecipe, useRecipeMatches } from '@/lib/recipes';
 
 export default function RecipesScreen() {
@@ -40,7 +47,11 @@ export default function RecipesScreen() {
           </ThemedText>
         </View>
 
-        <RegionPicker selected={prefs.preferredArea} onSelect={(area) => setPreferredArea(uid, area)} />
+        <RegionPicker
+          selected={prefs.preferredAreas}
+          onToggle={(area, on) => togglePreferredArea(uid, area, on)}
+          onClear={() => clearPreferredAreas(uid)}
+        />
 
         {firstLoad ? (
           <ActivityIndicator style={styles.message} color="#2e7d32" />
@@ -50,14 +61,15 @@ export default function RecipesScreen() {
           <FlatList
             data={visible}
             keyExtractor={(recipe) => recipe.id}
-            renderItem={({ item }) => (
-              <RecipeCard recipe={item} area={prefs.preferredArea} onHide={() => hideRecipe(uid, item.id)} />
-            )}
+            renderItem={({ item }) => <RecipeCard recipe={item} onHide={() => hideRecipe(uid, item.id)} />}
             ListHeaderComponent={
               // Explain when the picked region has no recipes that use this pantry's food
-              prefs.preferredArea && !loading && visible.length > 0 && !visible.some((r) => r.fromPreferredArea) ? (
+              prefs.preferredAreas.length > 0 &&
+              !loading &&
+              visible.length > 0 &&
+              !visible.some((r) => r.preferredArea) ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  No {prefs.preferredArea} recipes use the food in your pantry right now, so here are other ideas.
+                  No recipes from your regions use the food in your pantry right now, so here are other ideas.
                 </ThemedText>
               ) : null
             }
@@ -85,32 +97,51 @@ export default function RecipesScreen() {
   );
 }
 
-// A "Region: Any ▾" button. Tapping it opens a scrollable list of regions to pick from.
-function RegionPicker({ selected, onSelect }: { selected: string | null; onSelect: (area: string | null) => void }) {
-  const [areas, setAreas] = useState<string[]>([]);
+type RegionRow = { kind: 'heading'; title: string } | { kind: 'any' } | { kind: 'area'; area: string };
+
+// A "Regions: Any ▾" button. Tapping it opens a list where the user ticks the regions they like.
+// Popular regions are listed first, then all the others A-Z. Choices save as soon as they're tapped.
+function RegionPicker({
+  selected,
+  onToggle,
+  onClear,
+}: {
+  selected: string[];
+  onToggle: (area: string, on: boolean) => void;
+  onClear: () => void;
+}) {
+  const [areas, setAreas] = useState<{ popular: string[]; others: string[] } | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     loadAreas()
       .then(setAreas)
-      .catch(() => setAreas([])); // no internet: just don't show the region button
+      .catch(() => setAreas(null)); // no internet: just don't show the region button
   }, []);
 
-  if (areas.length === 0) return null;
+  if (!areas) return null;
 
-  const choose = (area: string | null) => {
-    onSelect(area);
-    setOpen(false);
-  };
+  const rows: RegionRow[] = [
+    { kind: 'any' },
+    { kind: 'heading', title: 'Popular' },
+    ...areas.popular.map((area) => ({ kind: 'area' as const, area })),
+    { kind: 'heading', title: 'All regions' },
+    ...areas.others.map((area) => ({ kind: 'area' as const, area })),
+  ];
+
+  // "Any", "Italian", or "Italian +2"
+  const label =
+    selected.length === 0 ? 'Any' : selected.length === 1 ? selected[0] : `${selected[0]} +${selected.length - 1}`;
+  const hasSelection = selected.length > 0;
 
   return (
     <View style={styles.regionRow}>
       <Pressable onPress={() => setOpen(true)}>
         <ThemedView
-          type={selected ? undefined : 'backgroundElement'}
-          style={[styles.regionButton, selected && styles.regionSelected]}>
-          <ThemedText type="small" style={selected && styles.regionSelectedText}>
-            Region: {selected ?? 'Any'} ▾
+          type={hasSelection ? undefined : 'backgroundElement'}
+          style={[styles.regionButton, hasSelection && styles.regionSelected]}>
+          <ThemedText type="small" style={hasSelection && styles.regionSelectedText}>
+            Regions: {label} ▾
           </ThemedText>
         </ThemedView>
       </Pressable>
@@ -122,20 +153,38 @@ function RegionPicker({ selected, onSelect }: { selected: string | null; onSelec
           <Pressable style={styles.sheetArea} onPress={(event) => event.stopPropagation()}>
             <ThemedView style={styles.sheet}>
               <ThemedText type="smallBold" style={styles.sheetTitle}>
-                Show more recipes from
+                Show recipes from these regions first
               </ThemedText>
               <FlatList
-                data={[null, ...areas]}
-                keyExtractor={(area) => area ?? 'any'}
-                renderItem={({ item: area }) => (
-                  <Pressable onPress={() => choose(area)} style={styles.regionOption}>
-                    <ThemedText style={area === selected && styles.regionOptionSelected}>
-                      {area ?? 'Any region'}
-                      {area === selected ? '  ✓' : ''}
-                    </ThemedText>
-                  </Pressable>
-                )}
+                data={rows}
+                keyExtractor={(row) => (row.kind === 'area' ? row.area : row.kind === 'heading' ? row.title : 'any')}
+                renderItem={({ item: row }) => {
+                  if (row.kind === 'heading') {
+                    return (
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.regionHeading}>
+                        {row.title.toUpperCase()}
+                      </ThemedText>
+                    );
+                  }
+                  const isAny = row.kind === 'any';
+                  const checked = isAny ? !hasSelection : selected.includes(row.area);
+                  return (
+                    <Pressable
+                      onPress={() => (isAny ? onClear() : onToggle(row.area, !checked))}
+                      style={styles.regionOption}>
+                      <ThemedText style={[styles.checkbox, checked && styles.regionOptionSelected]}>
+                        {checked ? '☑' : '☐'}
+                      </ThemedText>
+                      <ThemedText style={checked && styles.regionOptionSelected}>
+                        {isAny ? 'Any region' : row.area}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                }}
               />
+              <Pressable onPress={() => setOpen(false)} style={styles.doneButton}>
+                <ThemedText style={styles.doneText}>Done</ThemedText>
+              </Pressable>
             </ThemedView>
           </Pressable>
         </Pressable>
@@ -144,7 +193,7 @@ function RegionPicker({ selected, onSelect }: { selected: string | null; onSelec
   );
 }
 
-function RecipeCard({ recipe, area, onHide }: { recipe: RankedRecipe; area: string | null; onHide: () => void }) {
+function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
   return (
     // Tap anywhere on the card to open the full recipe
     <Pressable onPress={() => router.push({ pathname: '/recipe', params: { id: recipe.id } })}>
@@ -167,9 +216,9 @@ function RecipeCard({ recipe, area, onHide }: { recipe: RankedRecipe; area: stri
           <ThemedText type="small" themeColor="textSecondary">
             You have {recipe.haveCount} of {recipe.totalCount} ingredients
           </ThemedText>
-          {recipe.fromPreferredArea && area && (
+          {recipe.preferredArea && (
             <ThemedText type="small" style={styles.areaTag}>
-              {area} recipe
+              {recipe.preferredArea} recipe
             </ThemedText>
           )}
         </View>
@@ -242,8 +291,32 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.two,
   },
   regionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
+  },
+  regionHeading: {
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.one,
+    letterSpacing: 1,
+  },
+  checkbox: {
+    fontSize: 18,
+  },
+  doneButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+    marginHorizontal: Spacing.four,
+    marginTop: Spacing.three,
+    alignItems: 'center',
+  },
+  doneText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
   },
   regionOptionSelected: {
     color: '#2e7d32',

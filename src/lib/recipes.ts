@@ -78,11 +78,22 @@ async function recipeIngredients(id: string): Promise<string[]> {
 }
 
 // Ids of every recipe from one region, e.g. all "Mexican" recipes
-async function recipeIdsFromArea(area: string): Promise<Set<string>> {
+async function recipeIdsFromArea(area: string): Promise<string[]> {
   const response = await fetch(`${API}/filter.php?a=${encodeURIComponent(area)}`);
   if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
   const data = await response.json();
-  return new Set((data.meals ?? []).map((meal: MealSummary) => meal.idMeal));
+  return (data.meals ?? []).map((meal: MealSummary) => meal.idMeal);
+}
+
+// Which region each recipe is from, for the regions the user picked: recipe id -> "Mexican".
+// If one region fails to load, just skip it.
+async function recipeAreas(areas: string[]): Promise<Map<string, string>> {
+  const results = await Promise.allSettled(areas.map((area) => recipeIdsFromArea(area)));
+  const map = new Map<string, string>();
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") result.value.forEach((id) => map.set(id, areas[i]));
+  });
+  return map;
 }
 
 // Every ingredient name TheMealDB knows (about 600). Loaded once, then reused.
@@ -118,10 +129,7 @@ export async function searchRecipesForPantry(
   items: PantryItem[],
   prefs: RecipePreferences
 ): Promise<RankedRecipe[]> {
-  // If the region list fails to load, just rank without the region bonus
-  const areaIds = prefs.preferredArea
-    ? await recipeIdsFromArea(prefs.preferredArea).catch(() => new Set<string>())
-    : new Set<string>();
+  const areaOf = await recipeAreas(prefs.preferredAreas);
   const hidden = new Set(prefs.hiddenRecipeIds);
 
   const soonest = await usablePantryIngredients(items);
@@ -151,7 +159,7 @@ export async function searchRecipesForPantry(
   // Recipes from the user's region go first, then the ones with the most urgency points.
   const urgency = (matched: MatchedIngredient[]) =>
     matched.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
-  const inArea = (meal: MealSummary) => Number(areaIds.has(meal.idMeal));
+  const inArea = (meal: MealSummary) => Number(areaOf.has(meal.idMeal));
   const shortlist = [...candidates.values()]
     .sort(
       (a, b) =>
@@ -171,7 +179,7 @@ export async function searchRecipesForPantry(
         matched,
         ingredients,
         pantryNames,
-        areaIds.has(meal.idMeal)
+        areaOf.get(meal.idMeal) ?? null
       );
     })
   );
@@ -188,7 +196,7 @@ export function useRecipeMatches(items: PantryItem[], prefs: RecipePreferences, 
   // or when the user hides a recipe or picks a region
   const key =
     items.map((item) => `${item.name}@${item.expirationDate?.toMillis() ?? ""}`).join("|") +
-    `#${prefs.preferredArea}#${prefs.hiddenRecipeIds.join(",")}`;
+    `#${prefs.preferredAreas.join(",")}#${prefs.hiddenRecipeIds.join(",")}`;
 
   useEffect(() => {
     if (waiting) return;

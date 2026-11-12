@@ -14,7 +14,7 @@
 //   2. Add a "coverage bonus" of 0-3 points for how much of the recipe
 //      you already have (have all of it = +3, half = +1.5, ...).
 //   3. Highest score first. Ties go to the recipe you have more of, then A-Z.
-//   4. If the user picked a region, recipes from that region that use their
+//   4. If the user picked regions, recipes from those regions that use their
 //      food come first (still sorted by score), then everything else.
 //
 // So a recipe that uses chicken expiring today beats one that only uses rice,
@@ -34,7 +34,7 @@ export type RankedRecipe = {
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
-  fromPreferredArea: boolean; // from the region the user picked
+  preferredArea: string | null; // which of the user's picked regions it's from, e.g. "Italian"
   score: number;
 };
 
@@ -92,7 +92,7 @@ export function scoreRecipe(
   matchedIngredients: MatchedIngredient[],
   recipeIngredients: string[],
   pantryNames: string[],
-  fromPreferredArea = false
+  preferredArea: string | null = null
 ): RankedRecipe {
   const counted = recipeIngredients.filter((ing) => !STAPLES.has(simplifyName(ing)));
   const missingIngredients = counted.filter((ing) => !pantryHas(ing, pantryNames));
@@ -111,7 +111,7 @@ export function scoreRecipe(
     haveCount,
     totalCount,
     missingIngredients,
-    fromPreferredArea,
+    preferredArea,
     score: Math.round((urgency + coverageBonus) * 10) / 10,
   };
 }
@@ -120,7 +120,7 @@ export function scoreRecipe(
 // then the recipe you have more of, then A-Z
 export function byBestMatch(a: RankedRecipe, b: RankedRecipe) {
   return (
-    Number(b.fromPreferredArea) - Number(a.fromPreferredArea) ||
+    Number(!!b.preferredArea) - Number(!!a.preferredArea) ||
     b.score - a.score ||
     b.haveCount / b.totalCount - a.haveCount / a.totalCount ||
     a.name.localeCompare(b.name)
