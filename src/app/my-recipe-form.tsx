@@ -8,7 +8,14 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
-import { addMyRecipe, checkRecipeForm, getMyRecipe, toFirestoreId, updateMyRecipe } from '@/lib/my-recipes';
+import {
+  addMyRecipe,
+  checkRecipeForm,
+  getMyRecipe,
+  parseIngredientLines,
+  toFirestoreId,
+  updateMyRecipe,
+} from '@/lib/my-recipes';
 
 type IngredientRow = { measure: string; name: string };
 const EMPTY_ROWS: IngredientRow[] = [
@@ -30,6 +37,8 @@ export default function MyRecipeFormScreen() {
   const [link, setLink] = useState('');
   const [ingredients, setIngredients] = useState<IngredientRow[]>(EMPTY_ROWS);
   const [stepsText, setStepsText] = useState('');
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
@@ -53,6 +62,16 @@ export default function MyRecipeFormScreen() {
 
   function updateRow(index: number, changes: Partial<IngredientRow>) {
     setIngredients(ingredients.map((row, i) => (i === index ? { ...row, ...changes } : row)));
+  }
+
+  // Split a pasted ingredient list into rows, replacing the empty rows
+  function handlePaste() {
+    const rows = parseIngredientLines(pasteText);
+    if (rows.length === 0) return;
+    const filled = ingredients.filter((row) => row.name.trim() || row.measure.trim());
+    setIngredients([...filled, ...rows]);
+    setPasteText('');
+    setPasteOpen(false);
   }
 
   async function handleSave() {
@@ -120,6 +139,38 @@ export default function MyRecipeFormScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             These are matched with your pantry and can go on your shopping list.
           </ThemedText>
+          {/* Copy the ingredient list from a recipe website and paste it here */}
+          {pasteOpen ? (
+            <View style={styles.pasteBox}>
+              <TextInput
+                style={[inputStyle, styles.stepsInput]}
+                placeholder={'Paste the ingredient list, one per line:\n2 cups flour\n3 ripe bananas\n1 tsp baking soda'}
+                placeholderTextColor={theme.textSecondary}
+                multiline
+                textAlignVertical="top"
+                value={pasteText}
+                onChangeText={setPasteText}
+                autoFocus
+              />
+              <View style={styles.pasteButtons}>
+                <Pressable onPress={() => setPasteOpen(false)} hitSlop={8}>
+                  <ThemedText themeColor="textSecondary">Cancel</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.smallGreenButton, !pasteText.trim() && styles.disabled]}
+                  onPress={handlePaste}
+                  disabled={!pasteText.trim()}>
+                  <ThemedText type="smallBold" style={styles.saveText}>
+                    Fill in ingredients
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable style={styles.pasteLink} onPress={() => setPasteOpen(true)} hitSlop={8}>
+              <ThemedText type="linkPrimary">📋 Paste an ingredient list</ThemedText>
+            </Pressable>
+          )}
           {ingredients.map((row, i) => (
             <View key={i} style={styles.ingredientRow}>
               <TextInput
@@ -231,6 +282,27 @@ const styles = StyleSheet.create({
   },
   stepsInput: {
     minHeight: 140,
+  },
+  pasteLink: {
+    marginBottom: Spacing.one,
+  },
+  pasteBox: {
+    gap: Spacing.two,
+  },
+  pasteButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: Spacing.four,
+  },
+  smallGreenButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  disabled: {
+    opacity: 0.5,
   },
   error: {
     color: '#d93025',
