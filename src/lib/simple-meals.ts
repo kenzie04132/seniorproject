@@ -262,27 +262,37 @@ export function simpleMealDetails(id: string): RecipeDetails | null {
   return { ...meal, thumbnail: "", area: "", category: "Super easy", youtube: null, source: null };
 }
 
-// Score every simple meal against the pantry, best first.
+// Score a list of our own recipes (built-in easy meals, or the user's recipes)
+// against the pantry, ready-to-cook first, then best match.
 // `soonest` is the pantry's usable food: ingredient name -> days until it expires.
-export function rankSimpleMeals(soonest: Map<string, number | null>): RankedRecipe[] {
+export function rankOwnRecipes(
+  recipes: { id: string; name: string; emoji: string; ingredients: { name: string }[]; steps: string[] }[],
+  soonest: Map<string, number | null>
+): RankedRecipe[] {
   const pantryNames = [...soonest.keys()];
-  return SIMPLE_MEALS.map((meal) => {
-    // Which pantry items this meal uses up, and how soon each expires
-    const matched: MatchedIngredient[] = [];
-    for (const ing of meal.ingredients) {
-      const pantryName = pantryNames.find((name) => pantryHas(ing.name, [name]));
-      if (pantryName && !matched.some((m) => m.name === pantryName)) {
-        matched.push({ name: pantryName, daysLeft: soonest.get(pantryName) ?? null });
+  return recipes
+    .map((recipe) => {
+      // Which pantry items this recipe uses up, and how soon each expires
+      const matched: MatchedIngredient[] = [];
+      for (const ing of recipe.ingredients) {
+        const pantryName = pantryNames.find((name) => pantryHas(ing.name, [name]));
+        if (pantryName && !matched.some((m) => m.name === pantryName)) {
+          matched.push({ name: pantryName, daysLeft: soonest.get(pantryName) ?? null });
+        }
       }
-    }
-    const words = meal.steps.join(" ").split(/\s+/).length;
-    return scoreRecipe(
-      { id: meal.id, name: meal.name, thumbnail: "", emoji: meal.emoji },
-      matched,
-      meal.ingredients.map((ing) => ing.name),
-      pantryNames,
-      null,
-      words
-    );
-  }).sort((a, b) => Number(isReadyToCook(b)) - Number(isReadyToCook(a)) || byBestMatch(a, b));
+      const words = recipe.steps.join(" ").split(/\s+/).filter(Boolean).length;
+      return scoreRecipe(
+        { id: recipe.id, name: recipe.name, thumbnail: "", emoji: recipe.emoji },
+        matched,
+        recipe.ingredients.map((ing) => ing.name),
+        pantryNames,
+        null,
+        words
+      );
+    })
+    .sort((a, b) => Number(isReadyToCook(b)) - Number(isReadyToCook(a)) || byBestMatch(a, b));
+}
+
+export function rankSimpleMeals(soonest: Map<string, number | null>) {
+  return rankOwnRecipes(SIMPLE_MEALS, soonest);
 }

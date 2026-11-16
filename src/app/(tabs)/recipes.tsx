@@ -19,7 +19,12 @@ import {
 } from '@/lib/preferences';
 import { Difficulty } from '@/lib/matching';
 import { RankedRecipe, usablePantryIngredients, useRecipeMatches } from '@/lib/recipes';
-import { isReadyToCook, rankSimpleMeals } from '@/lib/simple-meals';
+import { MY_RECIPE_EMOJI, toScreenId, useMyRecipes } from '@/lib/my-recipes';
+import { isReadyToCook, rankOwnRecipes, rankSimpleMeals } from '@/lib/simple-meals';
+
+// The filter chips: TheMealDB difficulties, plus the built-in super easy meals
+// and the user's own recipes (Week 10)
+type RecipeView = Difficulty | 'Any' | 'Super easy' | 'Mine';
 
 export default function RecipesScreen() {
   const { user } = useAuth();
@@ -30,18 +35,26 @@ export default function RecipesScreen() {
 
   // Hide a recipe right away, without waiting for the search to run again
   const hidden = new Set(prefs.hiddenRecipeIds);
-  const [difficulty, setDifficulty] = useState<Difficulty | 'Any'>('Any');
+  const [difficulty, setDifficulty] = useState<RecipeView>('Any');
   const visible = recipes.filter(
     (recipe) => !hidden.has(recipe.id) && (difficulty === 'Any' || recipe.difficulty === difficulty),
   );
 
-  // Week 10: built-in super easy meals, ranked against the pantry (no internet needed)
-  const [simpleMeals, setSimpleMeals] = useState<RankedRecipe[]>([]);
+  // Week 10: built-in super easy meals and the user's own recipes,
+  // ranked against the pantry the same way (no TheMealDB needed)
+  const myRecipes = useMyRecipes(user?.uid);
+  const [soonest, setSoonest] = useState<Map<string, number | null>>(new Map());
   useEffect(() => {
     if (pantry.loading) return;
-    usablePantryIngredients(pantry.items).then((soonest) => setSimpleMeals(rankSimpleMeals(soonest)));
+    usablePantryIngredients(pantry.items).then(setSoonest);
   }, [pantry.items, pantry.loading]);
-  const showSimple = difficulty === 'Any' || difficulty === 'Easy';
+  const simpleMeals = rankSimpleMeals(soonest);
+  const mine = rankOwnRecipes(
+    myRecipes.recipes.map((r) => ({ ...r, id: toScreenId(r.id), emoji: MY_RECIPE_EMOJI })),
+    soonest,
+  );
+  const ownView = difficulty === 'Super easy' || difficulty === 'Mine';
+  const listData = difficulty === 'Super easy' ? simpleMeals : difficulty === 'Mine' ? mine : visible;
 
   // Only show the full-screen spinner the first time. After that, keep the old list
   // on screen while new results load, so hiding a recipe doesn't make the list flash.
@@ -69,24 +82,33 @@ export default function RecipesScreen() {
           <DifficultyFilter selected={difficulty} onSelect={setDifficulty} />
         </View>
 
-        {firstLoad ? (
+        {firstLoad && !ownView ? (
           <ActivityIndicator style={styles.message} color="#2e7d32" />
-        ) : error || pantry.error ? (
+        ) : (error || pantry.error) && !ownView ? (
           <ThemedText style={[styles.message, styles.error]}>{error || pantry.error}</ThemedText>
         ) : (
           <FlatList
-            data={visible}
+            data={listData}
             keyExtractor={(recipe) => recipe.id}
-            renderItem={({ item }) => <RecipeCard recipe={item} onHide={() => hideRecipe(uid, item.id)} />}
+            renderItem={({ item }) => (
+              // Only TheMealDB recipes can be hidden with "Not interested"
+              <RecipeCard recipe={item} onHide={ownView ? undefined : () => hideRecipe(uid, item.id)} />
+            )}
             ListHeaderComponent={
               <>
-                {showSimple && <SimpleMealsSection meals={simpleMeals} />}
-                {showSimple && visible.length > 0 && (
-                  <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
-                    MORE RECIPES
+                {difficulty === 'Super easy' && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Quick meals with just a few ingredients, like a PB&J or an egg burrito.
                   </ThemedText>
                 )}
-                {
+                {difficulty === 'Mine' && (
+                  <Pressable style={styles.addRecipeButton} onPress={() => router.push('/my-recipe-form')}>
+                    <ThemedText type="smallBold" style={styles.regionSelectedText}>
+                      + Add your own recipe
+                    </ThemedText>
+                  </Pressable>
+                )}
+                {!ownView &&
                   // Explain when the picked region has no recipes that use this pantry's food
                   prefs.preferredAreas.length > 0 &&
                   !loading &&
@@ -102,7 +124,9 @@ export default function RecipesScreen() {
             contentContainerStyle={styles.list}
             ListEmptyComponent={
               <ThemedText themeColor="textSecondary" style={styles.message}>
-                {pantry.items.length === 0
+                {difficulty === 'Mine'
+                  ? "You haven't added any recipes yet. Add a family recipe, or save one you found online."
+                  : pantry.items.length === 0
                   ? 'Add items to your pantry to see recipes you can make.'
                   : difficulty !== 'Any' && recipes.length > 0
                     ? `No ${difficulty.toLowerCase()} recipes for the food in your pantry right now.`
@@ -110,7 +134,7 @@ export default function RecipesScreen() {
               </ThemedText>
             }
             ListFooterComponent={
-              hidden.size > 0 ? (
+              hidden.size > 0 && !ownView ? (
                 <Pressable onPress={() => showHiddenRecipes(uid)} hitSlop={8} style={styles.footer}>
                   <ThemedText type="small" style={styles.link}>
                     Show {hidden.size} hidden {hidden.size === 1 ? 'recipe' : 'recipes'} again
@@ -226,10 +250,12 @@ function DifficultyFilter({
   selected,
   onSelect,
 }: {
-  selected: Difficulty | 'Any';
-  onSelect: (difficulty: Difficulty | 'Any') => void;
+  selected: RecipeView;
+  onSelect: (view: RecipeView) => void;
 }) {
-  const options: (Difficulty | 'Any')[] = ['Any', 'Easy', 'Medium', 'Hard'];
+  const options: RecipeView[] = ['Any', 'Super easy', 'Easy', 'Medium', 'Hard', 'Mine'];
+  const label = (option: RecipeView) =>
+    option === 'Any' ? 'Any difficulty' : option === 'Mine' ? 'Added by me' : option;
   return (
     <View style={styles.difficultyRow}>
       {options.map((option) => {
@@ -240,36 +266,12 @@ function DifficultyFilter({
               type={isSelected ? undefined : 'backgroundElement'}
               style={[styles.regionButton, isSelected && styles.regionSelected]}>
               <ThemedText type="small" style={isSelected && styles.regionSelectedText}>
-                {option === 'Any' ? 'Any difficulty' : option}
+                {label(option)}
               </ThemedText>
             </ThemedView>
           </Pressable>
         );
       })}
-    </View>
-  );
-}
-
-// Week 10: built-in quick meals (PB&J, egg burrito...) that TheMealDB doesn't have.
-// Shows the best 3, ready-to-cook first, with a link to see the rest.
-function SimpleMealsSection({ meals }: { meals: RankedRecipe[] }) {
-  const [showAll, setShowAll] = useState(false);
-  if (meals.length === 0) return null;
-  const shown = showAll ? meals : meals.slice(0, 3);
-
-  return (
-    <View style={styles.simpleSection}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
-        SUPER EASY MEALS
-      </ThemedText>
-      {shown.map((meal) => (
-        <RecipeCard key={meal.id} recipe={meal} />
-      ))}
-      <Pressable onPress={() => setShowAll(!showAll)} hitSlop={8}>
-        <ThemedText type="small" style={styles.link}>
-          {showAll ? 'Show fewer easy meals' : `Show all ${meals.length} easy meals`}
-        </ThemedText>
-      </Pressable>
     </View>
   );
 }
@@ -462,13 +464,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: Spacing.three,
   },
-  simpleSection: {
-    gap: Spacing.two + Spacing.one,
-    marginBottom: Spacing.two,
-  },
-  sectionTitle: {
-    marginTop: Spacing.two,
-    letterSpacing: 0.5,
+  addRecipeButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
   },
   emojiThumbnail: {
     alignItems: 'center',

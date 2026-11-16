@@ -49,6 +49,17 @@ export type ShoppingListItem = {
   createdAt: Timestamp;
 };
 
+// users/{uid}/myRecipes/{id} - recipes the user added themselves (Week 10)
+export type UserRecipe = {
+  id: string;
+  name: string;                                   // "Grandma's Chili"
+  sourceUrl: string | null;                       // link to the recipe online, if it came from a website
+  ingredients: { name: string; measure: string }[]; // { name: "Ground Beef", measure: "1 lb" }
+  steps: string[];                                // one instruction per line (can be empty if there's a link)
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
 // When creating a new document, Firestore generates the id for you
 export type NewPantryItem = Omit<PantryItem, "id" | "createdAt" | "updatedAt">;
 export type NewShoppingListItem = Omit<ShoppingListItem, "id" | "createdAt">;

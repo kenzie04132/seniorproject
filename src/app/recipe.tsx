@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { Href, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
@@ -10,6 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { pantryHas } from '@/lib/matching';
+import { deleteMyRecipe, isMyRecipe, toFirestoreId, toRecipeDetails, useMyRecipes } from '@/lib/my-recipes';
 import { usePantryItems } from '@/lib/pantry';
 import { getRecipeDetails, RecipeDetails, usablePantryIngredients } from '@/lib/recipes';
 import { addMissingToList, useShoppingList } from '@/lib/shopping';
@@ -23,24 +24,51 @@ export default function RecipeScreen() {
   const pantry = usePantryItems(user?.uid);
   const shopping = useShoppingList(user?.uid);
 
-  const [recipe, setRecipe] = useState<RecipeDetails | null>(null);
+  const [apiRecipe, setApiRecipe] = useState<RecipeDetails | null>(null);
   const [pantryNames, setPantryNames] = useState<string[]>([]);
   const [pantryReady, setPantryReady] = useState(false); // true once we know what's in the pantry
   const [adding, setAdding] = useState(false);
   const [addMessage, setAddMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [apiLoading, setApiLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
 
+  // TheMealDB recipes and built-in easy meals
+  const mine = !!id && isMyRecipe(id);
   useEffect(() => {
-    if (!id) return;
+    if (!id || mine) return;
     getRecipeDetails(id)
       .then((details) => {
-        if (details) setRecipe(details);
-        else setError('This recipe could not be found.');
+        if (details) setApiRecipe(details);
+        else setApiError('This recipe could not be found.');
       })
-      .catch(() => setError("Couldn't load this recipe. Check your internet connection."))
-      .finally(() => setLoading(false));
-  }, [id]);
+      .catch(() => setApiError("Couldn't load this recipe. Check your internet connection."))
+      .finally(() => setApiLoading(false));
+  }, [id, mine]);
+
+  // The user's own recipes come from Firestore, live, so edits show up right away
+  const myRecipes = useMyRecipes(user?.uid);
+  const myRecipe = mine ? myRecipes.recipes.find((r) => r.id === toFirestoreId(id)) : undefined;
+
+  const recipe = mine ? (myRecipe ? toRecipeDetails(myRecipe) : null) : apiRecipe;
+  const loading = mine ? myRecipes.loading : apiLoading;
+  const error = mine ? (myRecipe ? '' : 'This recipe could not be found.') : apiError;
+
+  function handleDelete() {
+    if (!user || !myRecipe) return;
+    const question = `Delete "${myRecipe.name}"? This can't be undone.`;
+    const remove = () => {
+      close();
+      deleteMyRecipe(user.uid, myRecipe.id);
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm(question)) remove();
+      return;
+    }
+    Alert.alert('Delete recipe', question, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: remove },
+    ]);
+  }
 
   // Which ingredients are already in the pantry (expired food doesn't count)
   useEffect(() => {
@@ -86,6 +114,18 @@ export default function RecipeScreen() {
           <Pressable onPress={close} hitSlop={12}>
             <ThemedText type="linkPrimary">‹ Back</ThemedText>
           </Pressable>
+          {myRecipe && (
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => router.push({ pathname: '/my-recipe-form', params: { id } })}
+                hitSlop={12}>
+                <ThemedText type="linkPrimary">Edit</ThemedText>
+              </Pressable>
+              <Pressable onPress={handleDelete} hitSlop={12}>
+                <ThemedText style={styles.error}>Delete</ThemedText>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         {loading ? (
@@ -169,6 +209,9 @@ export default function RecipeScreen() {
             <ThemedText type="smallBold" style={styles.sectionTitle}>
               Instructions
             </ThemedText>
+            {recipe.steps.length === 0 && (
+              <ThemedText themeColor="textSecondary">The steps are on the original recipe, linked below.</ThemedText>
+            )}
             {recipe.steps.map((step, i) => (
               <View key={i} style={styles.stepRow}>
                 <ThemedText type="smallBold" style={styles.stepNumber}>
@@ -212,8 +255,14 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? Spacing.three : 0,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: Spacing.four,
   },
   content: {
     paddingHorizontal: Spacing.four,
