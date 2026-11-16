@@ -97,10 +97,7 @@ export function checkRecipeForm(form: {
   const ingredients = form.ingredients
     .map((ing) => ({ name: ing.name.trim(), measure: ing.measure.trim() }))
     .filter((ing) => ing.name); // skip empty rows
-  const steps = form.stepsText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const steps = parseStepLines(form.stepsText);
 
   if (!name) return { error: "Give your recipe a name." };
   if (link && !/^https?:\/\/\S+\.\S+/i.test(link)) {
@@ -170,4 +167,22 @@ export function parseIngredientLines(text: string): { measure: string; name: str
       return { measure: amount.join(" "), name };
     })
     .filter((row) => row.name);
+}
+
+// Clean up pasted instructions, one step per line. Step numbers, "Step 1" headings,
+// bullets and blank lines are removed, because the recipe page numbers the steps itself:
+//   "1. Preheat the oven to 350°F." -> "Preheat the oven to 350°F."
+//   "Step 2: Mash the bananas."     -> "Mash the bananas."
+export function parseStepLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[•\-*▢□☐✓·–]+\s*/, "") // bullets
+        .replace(/^step\s*\d+\s*[:.)-]?\s*/i, "") // "Step 1:" / "STEP 1"
+        .replace(/^\d+\s*[.):-]\s*/, "") // "1." / "1)"
+        .trim()
+    )
+    .filter((line) => line && !/^\d+$/.test(line) && !/^(instructions|directions|method):?$/i.test(line));
 }

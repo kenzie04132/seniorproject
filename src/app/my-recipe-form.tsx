@@ -13,6 +13,7 @@ import {
   checkRecipeForm,
   getMyRecipe,
   parseIngredientLines,
+  parseStepLines,
   toFirestoreId,
   updateMyRecipe,
 } from '@/lib/my-recipes';
@@ -39,6 +40,8 @@ export default function MyRecipeFormScreen() {
   const [stepsText, setStepsText] = useState('');
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [stepsPasteOpen, setStepsPasteOpen] = useState(false);
+  const [stepsPasteText, setStepsPasteText] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
@@ -72,6 +75,15 @@ export default function MyRecipeFormScreen() {
     setIngredients([...filled, ...rows]);
     setPasteText('');
     setPasteOpen(false);
+  }
+
+  // Clean up pasted instructions (removes "1.", "Step 1" and blank lines) and add them to the steps box
+  function handlePasteSteps() {
+    const steps = parseStepLines(stepsPasteText);
+    if (steps.length === 0) return;
+    setStepsText([stepsText.trim(), ...steps].filter(Boolean).join('\n'));
+    setStepsPasteText('');
+    setStepsPasteOpen(false);
   }
 
   async function handleSave() {
@@ -205,6 +217,37 @@ export default function MyRecipeFormScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             Put each step on its own line.
           </ThemedText>
+          {stepsPasteOpen ? (
+            <View style={styles.pasteBox}>
+              <TextInput
+                style={[inputStyle, styles.stepsInput]}
+                placeholder={'Paste the instructions from the website:\n1. Preheat the oven to 350°F.\n2. Mash the bananas.'}
+                placeholderTextColor={theme.textSecondary}
+                multiline
+                textAlignVertical="top"
+                value={stepsPasteText}
+                onChangeText={setStepsPasteText}
+                autoFocus
+              />
+              <View style={styles.pasteButtons}>
+                <Pressable onPress={() => setStepsPasteOpen(false)} hitSlop={8}>
+                  <ThemedText themeColor="textSecondary">Cancel</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.smallGreenButton, !stepsPasteText.trim() && styles.disabled]}
+                  onPress={handlePasteSteps}
+                  disabled={!stepsPasteText.trim()}>
+                  <ThemedText type="smallBold" style={styles.saveText}>
+                    Fill in steps
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable style={styles.pasteLink} onPress={() => setStepsPasteOpen(true)} hitSlop={8}>
+              <ThemedText type="linkPrimary">📋 Paste instructions</ThemedText>
+            </Pressable>
+          )}
           <TextInput
             style={[inputStyle, styles.stepsInput]}
             placeholder={'Brown the beef in a large pot.\nAdd the beans and tomatoes and simmer 30 minutes.'}
