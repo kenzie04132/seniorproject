@@ -42,6 +42,7 @@ export type RankedRecipe = {
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
   difficulty: Difficulty;
   preferredArea: string | null; // which of the user's picked regions it's from, e.g. "Italian"
+  ingredientsKnown: boolean; // false if the full recipe didn't load, so haveCount/totalCount are only a guess
   score: number;
 };
 
@@ -113,7 +114,8 @@ export function scoreRecipe(
   recipeIngredients: string[],
   pantryNames: string[],
   preferredArea: string | null = null,
-  instructionWords = 0
+  instructionWords = 0,
+  ingredientsKnown = true
 ): RankedRecipe {
   const counted = recipeIngredients.filter((ing) => !STAPLES.has(simplifyName(ing)));
   const missingIngredients = counted.filter((ing) => !pantryHas(ing, pantryNames));
@@ -121,7 +123,8 @@ export function scoreRecipe(
   const haveCount = Math.max(totalCount - missingIngredients.length, matchedIngredients.length);
 
   const urgency = matchedIngredients.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
-  const coverageBonus = totalCount === 0 ? 0 : 3 * (haveCount / totalCount);
+  // No bonus if we couldn't load the full recipe: we don't really know how much of it you have
+  const coverageBonus = totalCount === 0 || !ingredientsKnown ? 0 : 3 * (haveCount / totalCount);
 
   return {
     ...recipe,
@@ -134,6 +137,7 @@ export function scoreRecipe(
     missingIngredients,
     difficulty: recipeDifficulty(counted.length, instructionWords),
     preferredArea,
+    ingredientsKnown,
     score: Math.round((urgency + coverageBonus) * 10) / 10,
   };
 }

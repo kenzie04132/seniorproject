@@ -75,6 +75,28 @@ export async function getRecipeDetails(id: string): Promise<RecipeDetails | null
   };
 }
 
+// How many full recipes to look up at the same time
+const LOOKUPS_AT_ONCE = 5;
+
+// Full recipes we've already loaded, so searching again doesn't ask TheMealDB twice
+const detailsCache = new Map<string, RecipeDetails>();
+
+// Look up a recipe; if it fails, wait a second and try once more. null if both fail.
+async function detailsWithRetry(id: string): Promise<RecipeDetails | null> {
+  const cached = detailsCache.get(id);
+  if (cached) return cached;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const details = await getRecipeDetails(id);
+      if (details) detailsCache.set(id, details);
+      return details;
+    } catch {
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  return null;
+}
+
 // Ids of every recipe from one region, e.g. all "Mexican" recipes
 async function recipeIdsFromArea(area: string): Promise<string[]> {
   const response = await fetch(`${API}/filter.php?a=${encodeURIComponent(area)}`);
@@ -167,23 +189,31 @@ export async function searchRecipesForPantry(
     )
     .slice(0, MAX_RESULTS);
 
-  // Second pass: get each full recipe and score it
-  const ranked = await Promise.all(
-    shortlist.map(async ({ meal, matched }) => {
-      // If the details don't load, still score it using only what we matched
-      const details = await getRecipeDetails(meal.idMeal).catch(() => null);
-      const ingredients = details ? details.ingredients.map((ing) => ing.name) : matched.map((m) => m.name);
-      const instructionWords = details ? details.steps.join(" ").split(/\s+/).length : 0;
-      return scoreRecipe(
-        { id: meal.idMeal, name: meal.strMeal, thumbnail: meal.strMealThumb },
-        matched,
-        ingredients,
-        pantryNames,
-        areaOf.get(meal.idMeal) ?? null,
-        instructionWords
-      );
-    })
-  );
+  // Second pass: get each full recipe and score it.
+  // A few at a time, because TheMealDB starts refusing if we ask for 25 at once.
+  const ranked: RankedRecipe[] = [];
+  for (let i = 0; i < shortlist.length; i += LOOKUPS_AT_ONCE) {
+    const batch = shortlist.slice(i, i + LOOKUPS_AT_ONCE);
+    const scored = await Promise.all(
+      batch.map(async ({ meal, matched }) => {
+        const details = await detailsWithRetry(meal.idMeal);
+        // If the details still don't load, score it using only what we matched,
+        // and mark it so the app doesn't claim "you have all the ingredients"
+        const ingredients = details ? details.ingredients.map((ing) => ing.name) : matched.map((m) => m.name);
+        const instructionWords = details ? details.steps.join(" ").split(/\s+/).length : 0;
+        return scoreRecipe(
+          { id: meal.idMeal, name: meal.strMeal, thumbnail: meal.strMealThumb },
+          matched,
+          ingredients,
+          pantryNames,
+          areaOf.get(meal.idMeal) ?? null,
+          instructionWords,
+          !!details
+        );
+      })
+    );
+    ranked.push(...scored);
+  }
   return ranked.sort(byBestMatch);
 }
 

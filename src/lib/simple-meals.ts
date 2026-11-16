@@ -248,7 +248,7 @@ export const SIMPLE_MEALS: SimpleMeal[] = [
 
 // True when the pantry has every ingredient (salt, pepper and water don't count)
 export function isReadyToCook(recipe: RankedRecipe) {
-  return recipe.totalCount > 0 && recipe.haveCount >= recipe.totalCount;
+  return recipe.ingredientsKnown && recipe.totalCount > 0 && recipe.haveCount >= recipe.totalCount;
 }
 
 export function isSimpleMeal(id: string) {

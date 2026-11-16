@@ -314,9 +314,14 @@ function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide?: () => v
             <ThemedText type="smallBold" style={styles.readyText}>
               {recipe.difficulty} · You have all {recipe.totalCount} ingredients
             </ThemedText>
-          ) : (
+          ) : recipe.ingredientsKnown ? (
             <ThemedText type="small" themeColor="textSecondary">
               {recipe.difficulty} · You have {recipe.haveCount} of {recipe.totalCount} ingredients
+            </ThemedText>
+          ) : (
+            // The full recipe didn't load, so we only know which of your items it uses
+            <ThemedText type="small" themeColor="textSecondary">
+              Uses {recipe.matchedIngredients.length} of your items · tap to see the full recipe
             </ThemedText>
           )}
           {recipe.preferredArea && (
