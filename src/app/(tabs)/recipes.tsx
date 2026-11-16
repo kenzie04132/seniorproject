@@ -232,12 +232,20 @@ function DifficultyFilter({
 }
 
 function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
+  // Week 10: you already have every ingredient, so make this card stand out
+  const readyToCook = recipe.totalCount > 0 && recipe.haveCount >= recipe.totalCount;
+
   return (
     // Tap anywhere on the card to open the full recipe
     <Pressable onPress={() => router.push({ pathname: '/recipe', params: { id: recipe.id } })}>
-      <ThemedView type="backgroundElement" style={styles.card}>
+      <ThemedView type="backgroundElement" style={[styles.card, readyToCook && styles.readyCard]}>
         <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
         <View style={styles.cardText}>
+          {readyToCook && (
+            <ThemedText type="small" style={styles.readyBadge}>
+              ✓ Ready to cook
+            </ThemedText>
+          )}
           <ThemedText type="smallBold" style={styles.recipeName}>
             {recipe.name}
           </ThemedText>
@@ -251,9 +259,15 @@ function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => vo
               </ThemedText>
             ))}
           </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            {recipe.difficulty} · You have {recipe.haveCount} of {recipe.totalCount} ingredients
-          </ThemedText>
+          {readyToCook ? (
+            <ThemedText type="smallBold" style={styles.readyText}>
+              {recipe.difficulty} · You have all {recipe.totalCount} ingredients
+            </ThemedText>
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary">
+              {recipe.difficulty} · You have {recipe.haveCount} of {recipe.totalCount} ingredients
+            </ThemedText>
+          )}
           {recipe.preferredArea && (
             <ThemedText type="small" style={styles.areaTag}>
               {recipe.preferredArea} recipe
@@ -396,6 +410,24 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     borderRadius: 12,
     padding: Spacing.three,
+  },
+  // Green outline and tint for recipes you can make right now
+  readyCard: {
+    borderWidth: 2,
+    borderColor: '#2e7d32',
+    backgroundColor: 'rgba(46, 125, 50, 0.15)',
+  },
+  readyBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2e7d32',
+    color: '#ffffff',
+    fontWeight: 'bold',
+    borderRadius: 10,
+    paddingHorizontal: Spacing.two,
+    overflow: 'hidden',
+  },
+  readyText: {
+    color: '#4caf50',
   },
   thumbnail: {
     width: 64,
