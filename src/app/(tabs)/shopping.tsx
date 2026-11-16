@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   SectionList,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ExpirationPrompt } from '@/components/expiration-prompt';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -19,6 +21,7 @@ import { useAuth } from '@/lib/auth-context';
 import { capitalize, daysUntil, usePantryItems } from '@/lib/pantry';
 import {
   addItemByName,
+  clearAll,
   clearChecked,
   deleteShoppingItem,
   moveCheckedToPantry,
@@ -38,6 +41,8 @@ export default function ShoppingScreen() {
   const [newName, setNewName] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  // Items just moved to the pantry; while set, the "Add expiration dates now?" prompt shows
+  const [movedItems, setMovedItems] = useState<{ id: string; name: string }[] | null>(null);
 
   const sections = groupForDisplay(items, capitalize);
   const toBuy = items.filter((item) => !item.checked).length;
@@ -75,14 +80,41 @@ export default function ShoppingScreen() {
     });
   }
 
+  // Ask first, since this can't be undone
+  function handleClearAll() {
+    const question = `Remove all ${items.length} items from your shopping list?`;
+    const clear = () =>
+      run(async () => {
+        await clearAll(uid, items);
+        return 'Shopping list cleared.';
+      });
+    if (Platform.OS === 'web') {
+      if (window.confirm(question)) clear();
+      return;
+    }
+    Alert.alert('Clear shopping list', question, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear all', style: 'destructive', onPress: clear },
+    ]);
+  }
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <ThemedText type="subtitle">Shopping List</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {toBuy === 1 ? '1 item to buy' : `${toBuy} items to buy`}
-          </ThemedText>
+          <View style={styles.headerRight}>
+            <ThemedText type="small" themeColor="textSecondary">
+              {toBuy === 1 ? '1 item to buy' : `${toBuy} items to buy`}
+            </ThemedText>
+            {items.length > 0 && (
+              <Pressable onPress={handleClearAll} disabled={busy} hitSlop={8}>
+                <ThemedText type="small" style={styles.error}>
+                  Clear list
+                </ThemedText>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.addRow}>
@@ -176,7 +208,8 @@ export default function ShoppingScreen() {
                     onPress={() =>
                       run(async () => {
                         const moved = await moveCheckedToPantry(uid, items);
-                        return `Moved ${moved} ${moved === 1 ? 'item' : 'items'} to your pantry. Tap them there to add the expiration date.`;
+                        setMovedItems(moved); // opens the "Add expiration dates now?" prompt
+                        return '';
                       })
                     }>
                     <ThemedText type="smallBold" style={styles.greenButtonText}>
@@ -200,6 +233,15 @@ export default function ShoppingScreen() {
           />
         )}
       </SafeAreaView>
+
+      <ExpirationPrompt
+        uid={uid}
+        items={movedItems}
+        onClose={(doneMessage) => {
+          setMovedItems(null);
+          setMessage(doneMessage);
+        }}
+      />
     </ThemedView>
   );
 }
@@ -263,6 +305,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.three,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.three,
   },
   addRow: {
     flexDirection: 'row',

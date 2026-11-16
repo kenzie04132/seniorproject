@@ -115,14 +115,24 @@ export async function clearChecked(uid: string, items: ShoppingListItem[]) {
   await batch.commit();
 }
 
+// Remove everything from the list
+export async function clearAll(uid: string, items: ShoppingListItem[]) {
+  const batch = writeBatch(db);
+  items.forEach((item) => batch.delete(doc(shoppingCol(uid), item.id)));
+  await batch.commit();
+}
+
 // Done shopping: put every checked item into the pantry and take it off the list.
-// They go in as "1 count" with no expiration date, so the user can tap them
-// in the pantry to fix the amount and add the date from the package.
+// They go in as "1 count" with no expiration date. Returns the new pantry items,
+// so the screen can offer to add their expiration dates right away.
 export async function moveCheckedToPantry(uid: string, items: ShoppingListItem[]) {
   const checked = items.filter((item) => item.checked);
+  const moved: { id: string; name: string }[] = [];
   const batch = writeBatch(db);
   for (const item of checked) {
-    batch.set(doc(pantryCol(uid)), {
+    const pantryRef = doc(pantryCol(uid)); // Firestore makes the new id here
+    moved.push({ id: pantryRef.id, name: item.name });
+    batch.set(pantryRef, {
       name: item.name,
       normalizedName: item.name.trim().toLowerCase(), // same rule as the pantry form
       quantity: 1,
@@ -137,5 +147,5 @@ export async function moveCheckedToPantry(uid: string, items: ShoppingListItem[]
     batch.delete(doc(shoppingCol(uid), item.id));
   }
   await batch.commit();
-  return checked.length;
+  return moved;
 }
