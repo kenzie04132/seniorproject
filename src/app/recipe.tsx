@@ -94,7 +94,14 @@ export default function RecipeScreen() {
           <ThemedText style={[styles.message, styles.error]}>{error}</ThemedText>
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
-            <Image source={{ uri: recipe.thumbnail }} style={styles.photo} />
+            {recipe.thumbnail ? (
+              <Image source={{ uri: recipe.thumbnail }} style={styles.photo} />
+            ) : (
+              // Super easy meals have an emoji instead of a photo
+              <ThemedView type="backgroundElement" style={[styles.photo, styles.emojiPhoto]}>
+                <ThemedText style={styles.emoji}>{recipe.emoji ?? '🍽️'}</ThemedText>
+              </ThemedView>
+            )}
             <ThemedText type="subtitle">{recipe.name}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {[recipe.area, recipe.category].filter(Boolean).join(' · ')}
@@ -218,6 +225,14 @@ const styles = StyleSheet.create({
     aspectRatio: 1.6,
     borderRadius: 12,
     marginBottom: Spacing.two,
+  },
+  emojiPhoto: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: {
+    fontSize: 96,
+    lineHeight: 110,
   },
   sectionTitle: {
     fontSize: 18,

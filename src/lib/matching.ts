@@ -35,6 +35,7 @@ export type RankedRecipe = {
   id: string;
   name: string;
   thumbnail: string;
+  emoji?: string; // super easy meals have an emoji instead of a photo (Week 10)
   matchedIngredients: MatchedIngredient[]; // pantry food this recipe uses up
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
@@ -107,7 +108,7 @@ export function pantryHas(recipeIngredient: string, pantryNames: string[]) {
 
 // Score one recipe. `recipeIngredients` is the recipe's full ingredient list.
 export function scoreRecipe(
-  recipe: { id: string; name: string; thumbnail: string },
+  recipe: { id: string; name: string; thumbnail: string; emoji?: string },
   matchedIngredients: MatchedIngredient[],
   recipeIngredients: string[],
   pantryNames: string[],

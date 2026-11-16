@@ -18,7 +18,8 @@ import {
   useRecipePreferences,
 } from '@/lib/preferences';
 import { Difficulty } from '@/lib/matching';
-import { RankedRecipe, useRecipeMatches } from '@/lib/recipes';
+import { RankedRecipe, usablePantryIngredients, useRecipeMatches } from '@/lib/recipes';
+import { isReadyToCook, rankSimpleMeals } from '@/lib/simple-meals';
 
 export default function RecipesScreen() {
   const { user } = useAuth();
@@ -33,6 +34,14 @@ export default function RecipesScreen() {
   const visible = recipes.filter(
     (recipe) => !hidden.has(recipe.id) && (difficulty === 'Any' || recipe.difficulty === difficulty),
   );
+
+  // Week 10: built-in super easy meals, ranked against the pantry (no internet needed)
+  const [simpleMeals, setSimpleMeals] = useState<RankedRecipe[]>([]);
+  useEffect(() => {
+    if (pantry.loading) return;
+    usablePantryIngredients(pantry.items).then((soonest) => setSimpleMeals(rankSimpleMeals(soonest)));
+  }, [pantry.items, pantry.loading]);
+  const showSimple = difficulty === 'Any' || difficulty === 'Easy';
 
   // Only show the full-screen spinner the first time. After that, keep the old list
   // on screen while new results load, so hiding a recipe doesn't make the list flash.
@@ -70,15 +79,25 @@ export default function RecipesScreen() {
             keyExtractor={(recipe) => recipe.id}
             renderItem={({ item }) => <RecipeCard recipe={item} onHide={() => hideRecipe(uid, item.id)} />}
             ListHeaderComponent={
-              // Explain when the picked region has no recipes that use this pantry's food
-              prefs.preferredAreas.length > 0 &&
-              !loading &&
-              visible.length > 0 &&
-              !visible.some((r) => r.preferredArea) ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  No recipes from your regions use the food in your pantry right now, so here are other ideas.
-                </ThemedText>
-              ) : null
+              <>
+                {showSimple && <SimpleMealsSection meals={simpleMeals} />}
+                {showSimple && visible.length > 0 && (
+                  <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
+                    MORE RECIPES
+                  </ThemedText>
+                )}
+                {
+                  // Explain when the picked region has no recipes that use this pantry's food
+                  prefs.preferredAreas.length > 0 &&
+                  !loading &&
+                  visible.length > 0 &&
+                  !visible.some((r) => r.preferredArea) ? (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      No recipes from your regions use the food in your pantry right now, so here are other ideas.
+                    </ThemedText>
+                  ) : null
+                }
+              </>
             }
             contentContainerStyle={styles.list}
             ListEmptyComponent={
@@ -231,15 +250,45 @@ function DifficultyFilter({
   );
 }
 
-function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => void }) {
+// Week 10: built-in quick meals (PB&J, egg burrito...) that TheMealDB doesn't have.
+// Shows the best 3, ready-to-cook first, with a link to see the rest.
+function SimpleMealsSection({ meals }: { meals: RankedRecipe[] }) {
+  const [showAll, setShowAll] = useState(false);
+  if (meals.length === 0) return null;
+  const shown = showAll ? meals : meals.slice(0, 3);
+
+  return (
+    <View style={styles.simpleSection}>
+      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
+        SUPER EASY MEALS
+      </ThemedText>
+      {shown.map((meal) => (
+        <RecipeCard key={meal.id} recipe={meal} />
+      ))}
+      <Pressable onPress={() => setShowAll(!showAll)} hitSlop={8}>
+        <ThemedText type="small" style={styles.link}>
+          {showAll ? 'Show fewer easy meals' : `Show all ${meals.length} easy meals`}
+        </ThemedText>
+      </Pressable>
+    </View>
+  );
+}
+
+function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide?: () => void }) {
   // Week 10: you already have every ingredient, so make this card stand out
-  const readyToCook = recipe.totalCount > 0 && recipe.haveCount >= recipe.totalCount;
+  const readyToCook = isReadyToCook(recipe);
 
   return (
     // Tap anywhere on the card to open the full recipe
     <Pressable onPress={() => router.push({ pathname: '/recipe', params: { id: recipe.id } })}>
       <ThemedView type="backgroundElement" style={[styles.card, readyToCook && styles.readyCard]}>
-        <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
+        {recipe.emoji ? (
+          <View style={[styles.thumbnail, styles.emojiThumbnail]}>
+            <ThemedText style={styles.emoji}>{recipe.emoji}</ThemedText>
+          </View>
+        ) : (
+          <Image source={{ uri: recipe.thumbnail }} style={styles.thumbnail} />
+        )}
         <View style={styles.cardText}>
           {readyToCook && (
             <ThemedText type="small" style={styles.readyBadge}>
@@ -274,11 +323,13 @@ function RecipeCard({ recipe, onHide }: { recipe: RankedRecipe; onHide: () => vo
             </ThemedText>
           )}
         </View>
-        <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Not interested
-          </ThemedText>
-        </Pressable>
+        {onHide && (
+          <Pressable onPress={onHide} hitSlop={8} style={styles.hideButton}>
+            <ThemedText type="small" themeColor="textSecondary">
+              Not interested
+            </ThemedText>
+          </Pressable>
+        )}
       </ThemedView>
     </Pressable>
   );
@@ -410,6 +461,23 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     borderRadius: 12,
     padding: Spacing.three,
+  },
+  simpleSection: {
+    gap: Spacing.two + Spacing.one,
+    marginBottom: Spacing.two,
+  },
+  sectionTitle: {
+    marginTop: Spacing.two,
+    letterSpacing: 0.5,
+  },
+  emojiThumbnail: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(128, 128, 128, 0.2)',
+  },
+  emoji: {
+    fontSize: 36,
+    lineHeight: 44,
   },
   // Green outline and tint for recipes you can make right now
   readyCard: {

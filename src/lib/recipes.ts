@@ -4,6 +4,7 @@ import { PantryItem } from "@/types/models";
 import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
 import { daysUntil } from "./pantry";
 import { RecipePreferences } from "./preferences";
+import { isSimpleMeal, simpleMealDetails } from "./simple-meals";
 
 export type { RankedRecipe } from "./matching";
 
@@ -37,10 +38,12 @@ export type RecipeDetails = {
   steps: string[]; // the instructions, one paragraph per step
   youtube: string | null;
   source: string | null; // the website the recipe came from
+  emoji?: string; // super easy meals have an emoji instead of a photo
 };
 
 // Everything about one recipe, for the recipe page
 export async function getRecipeDetails(id: string): Promise<RecipeDetails | null> {
+  if (isSimpleMeal(id)) return simpleMealDetails(id); // built into the app, no internet needed
   const response = await fetch(`${API}/lookup.php?i=${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
   const meal = (await response.json()).meals?.[0];
