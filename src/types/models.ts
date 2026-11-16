@@ -43,7 +43,9 @@ export type ShoppingListItem = {
   unit: Unit;
   category: Category;
   checked: boolean;
-  sourceRecipeId: string | null; // which recipe added it
+  measure: string;               // how much the recipes ask for, e.g. "2 cups + 1 tbsp" (Week 10)
+  sourceRecipeIds: string[];     // which recipes added it (empty if typed in by hand)
+  sourceRecipeNames: string[];   // e.g. ["Chicken Fajitas"], shown under the item
   createdAt: Timestamp;
 };
 

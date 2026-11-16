@@ -12,6 +12,8 @@ import { useAuth } from '@/lib/auth-context';
 import { pantryHas } from '@/lib/matching';
 import { usePantryItems } from '@/lib/pantry';
 import { getRecipeDetails, RecipeDetails, usablePantryIngredients } from '@/lib/recipes';
+import { addMissingToList, useShoppingList } from '@/lib/shopping';
+import { listKey, missingForRecipe, planAddToList } from '@/lib/shopping-logic';
 
 // The full recipe: ingredients (marked if you have them) and step-by-step instructions.
 // Opened by tapping a recipe on the Recipes tab: /recipe?id=52772
@@ -19,9 +21,13 @@ export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const pantry = usePantryItems(user?.uid);
+  const shopping = useShoppingList(user?.uid);
 
   const [recipe, setRecipe] = useState<RecipeDetails | null>(null);
   const [pantryNames, setPantryNames] = useState<string[]>([]);
+  const [pantryReady, setPantryReady] = useState(false); // true once we know what's in the pantry
+  const [adding, setAdding] = useState(false);
+  const [addMessage, setAddMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -38,8 +44,37 @@ export default function RecipeScreen() {
 
   // Which ingredients are already in the pantry (expired food doesn't count)
   useEffect(() => {
-    usablePantryIngredients(pantry.items).then((names) => setPantryNames([...names.keys()]));
-  }, [pantry.items]);
+    if (pantry.loading) return;
+    usablePantryIngredients(pantry.items).then((names) => {
+      setPantryNames([...names.keys()]);
+      setPantryReady(true);
+    });
+  }, [pantry.items, pantry.loading]);
+
+  // Week 10: what you'd need to buy, and which of those are already on the shopping list
+  const missing = recipe ? missingForRecipe(recipe.ingredients, pantryNames) : [];
+  const onList = new Set(shopping.items.filter((item) => !item.checked).map((item) => item.normalizedName));
+  // How many of them tapping the button would add (or update), using the same rules as the button
+  const plan = planAddToList(missing, recipe?.id ?? '', shopping.items);
+  const toAdd = plan.add.length + plan.merge.length;
+
+  async function handleAddMissing() {
+    if (!user || !recipe) return;
+    setAdding(true);
+    setAddMessage('');
+    try {
+      const { added, merged } = await addMissingToList(user.uid, recipe, missing, shopping.items);
+      const parts = [`Added ${added} ${added === 1 ? 'item' : 'items'} to your shopping list.`];
+      if (merged > 0) {
+        parts.push(`${merged} ${merged === 1 ? 'was' : 'were'} already on it, so the amount was updated.`);
+      }
+      setAddMessage(parts.join(' '));
+    } catch {
+      setAddMessage('Something went wrong. Check your internet connection.');
+    } finally {
+      setAdding(false);
+    }
+  }
 
   // Go back to the Recipes tab (or open it, if this page was loaded directly)
   const close = () => (router.canGoBack() ? router.back() : router.replace('/recipes'));
@@ -65,11 +100,44 @@ export default function RecipeScreen() {
               {[recipe.area, recipe.category].filter(Boolean).join(' · ')}
             </ThemedText>
 
+            {/* Week 10: one tap puts everything you're missing on the shopping list */}
+            {pantryReady && !shopping.loading && (
+              <View style={styles.shoppingBox}>
+                {missing.length === 0 ? (
+                  <ThemedText type="smallBold" style={styles.have}>
+                    ✓ You have everything for this recipe
+                  </ThemedText>
+                ) : toAdd === 0 ? (
+                  <ThemedText type="smallBold" style={styles.have}>
+                    ✓ Everything you're missing is on your shopping list
+                  </ThemedText>
+                ) : (
+                  <Pressable
+                    style={[styles.shoppingButton, adding && styles.disabled]}
+                    onPress={handleAddMissing}
+                    disabled={adding}>
+                    <ThemedText type="smallBold" style={styles.shoppingButtonText}>
+                      {adding
+                        ? 'Adding...'
+                        : `Add ${toAdd} missing ${toAdd === 1 ? 'ingredient' : 'ingredients'} to shopping list`}
+                    </ThemedText>
+                  </Pressable>
+                )}
+                {addMessage !== '' && <ThemedText type="small">{addMessage}</ThemedText>}
+                {missing.length > 0 && toAdd < missing.length && (
+                  <Pressable onPress={() => router.push('/shopping')} hitSlop={8}>
+                    <ThemedText type="linkPrimary">View shopping list</ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
             <ThemedText type="smallBold" style={styles.sectionTitle}>
               Ingredients
             </ThemedText>
             {recipe.ingredients.map((ing, i) => {
               const have = pantryHas(ing.name, pantryNames);
+              const listed = !have && onList.has(listKey(ing.name));
               return (
                 <View key={i} style={styles.ingredientRow}>
                   <ThemedText style={[styles.mark, have ? styles.have : styles.need]}>{have ? '✓' : '○'}</ThemedText>
@@ -79,6 +147,11 @@ export default function RecipeScreen() {
                     {have && (
                       <ThemedText type="small" style={styles.have}>
                         {'  '}in your pantry
+                      </ThemedText>
+                    )}
+                    {listed && (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {'  '}on your shopping list
                       </ThemedText>
                     )}
                   </ThemedText>
@@ -183,6 +256,23 @@ const styles = StyleSheet.create({
   },
   stepText: {
     flex: 1,
+  },
+  shoppingBox: {
+    marginTop: Spacing.two,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+  },
+  shoppingButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two + Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  shoppingButtonText: {
+    color: '#ffffff',
+  },
+  disabled: {
+    opacity: 0.5,
   },
   links: {
     marginTop: Spacing.four,

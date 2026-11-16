@@ -45,7 +45,7 @@ export type RankedRecipe = {
 };
 
 // Things almost every kitchen has. They don't count as "missing".
-const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
+export const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
 
 export type Difficulty = "Easy" | "Medium" | "Hard";
 
