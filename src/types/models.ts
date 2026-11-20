@@ -43,8 +43,21 @@ export type ShoppingListItem = {
   unit: Unit;
   category: Category;
   checked: boolean;
-  sourceRecipeId: string | null; // which recipe added it
+  measure: string;               // how much the recipes ask for, e.g. "2 cups + 1 tbsp" (Week 10)
+  sourceRecipeIds: string[];     // which recipes added it (empty if typed in by hand)
+  sourceRecipeNames: string[];   // e.g. ["Chicken Fajitas"], shown under the item
   createdAt: Timestamp;
+};
+
+// users/{uid}/myRecipes/{id} - recipes the user added themselves (Week 10)
+export type UserRecipe = {
+  id: string;
+  name: string;                                   // "Grandma's Chili"
+  sourceUrl: string | null;                       // link to the recipe online, if it came from a website
+  ingredients: { name: string; measure: string }[]; // { name: "Ground Beef", measure: "1 lb" }
+  steps: string[];                                // one instruction per line (can be empty if there's a link)
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 };
 
 // When creating a new document, Firestore generates the id for you

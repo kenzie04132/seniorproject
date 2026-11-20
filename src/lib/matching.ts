@@ -35,17 +35,19 @@ export type RankedRecipe = {
   id: string;
   name: string;
   thumbnail: string;
+  emoji?: string; // super easy meals have an emoji instead of a photo (Week 10)
   matchedIngredients: MatchedIngredient[]; // pantry food this recipe uses up
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
   difficulty: Difficulty;
   preferredArea: string | null; // which of the user's picked regions it's from, e.g. "Italian"
+  ingredientsKnown: boolean; // false if the full recipe didn't load, so haveCount/totalCount are only a guess
   score: number;
 };
 
 // Things almost every kitchen has. They don't count as "missing".
-const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
+export const STAPLES = new Set(["salt", "pepper", "black pepper", "water"]);
 
 export type Difficulty = "Easy" | "Medium" | "Hard";
 
@@ -107,12 +109,13 @@ export function pantryHas(recipeIngredient: string, pantryNames: string[]) {
 
 // Score one recipe. `recipeIngredients` is the recipe's full ingredient list.
 export function scoreRecipe(
-  recipe: { id: string; name: string; thumbnail: string },
+  recipe: { id: string; name: string; thumbnail: string; emoji?: string },
   matchedIngredients: MatchedIngredient[],
   recipeIngredients: string[],
   pantryNames: string[],
   preferredArea: string | null = null,
-  instructionWords = 0
+  instructionWords = 0,
+  ingredientsKnown = true
 ): RankedRecipe {
   const counted = recipeIngredients.filter((ing) => !STAPLES.has(simplifyName(ing)));
   const missingIngredients = counted.filter((ing) => !pantryHas(ing, pantryNames));
@@ -120,7 +123,8 @@ export function scoreRecipe(
   const haveCount = Math.max(totalCount - missingIngredients.length, matchedIngredients.length);
 
   const urgency = matchedIngredients.reduce((sum, ing) => sum + urgencyPoints(ing.daysLeft), 0);
-  const coverageBonus = totalCount === 0 ? 0 : 3 * (haveCount / totalCount);
+  // No bonus if we couldn't load the full recipe: we don't really know how much of it you have
+  const coverageBonus = totalCount === 0 || !ingredientsKnown ? 0 : 3 * (haveCount / totalCount);
 
   return {
     ...recipe,
@@ -133,6 +137,7 @@ export function scoreRecipe(
     missingIngredients,
     difficulty: recipeDifficulty(counted.length, instructionWords),
     preferredArea,
+    ingredientsKnown,
     score: Math.round((urgency + coverageBonus) * 10) / 10,
   };
 }

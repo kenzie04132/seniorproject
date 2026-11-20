@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { Href, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
@@ -10,8 +10,11 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { pantryHas } from '@/lib/matching';
+import { deleteMyRecipe, isMyRecipe, toFirestoreId, toRecipeDetails, useMyRecipes } from '@/lib/my-recipes';
 import { usePantryItems } from '@/lib/pantry';
 import { getRecipeDetails, RecipeDetails, usablePantryIngredients } from '@/lib/recipes';
+import { addMissingToList, useShoppingList } from '@/lib/shopping';
+import { listKey, missingForRecipe, planAddToList } from '@/lib/shopping-logic';
 
 // The full recipe: ingredients (marked if you have them) and step-by-step instructions.
 // Opened by tapping a recipe on the Recipes tab: /recipe?id=52772
@@ -19,27 +22,87 @@ export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const pantry = usePantryItems(user?.uid);
+  const shopping = useShoppingList(user?.uid);
 
-  const [recipe, setRecipe] = useState<RecipeDetails | null>(null);
+  const [apiRecipe, setApiRecipe] = useState<RecipeDetails | null>(null);
   const [pantryNames, setPantryNames] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [pantryReady, setPantryReady] = useState(false); // true once we know what's in the pantry
+  const [adding, setAdding] = useState(false);
+  const [addMessage, setAddMessage] = useState('');
+  const [apiLoading, setApiLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
 
+  // TheMealDB recipes and built-in easy meals
+  const mine = !!id && isMyRecipe(id);
   useEffect(() => {
-    if (!id) return;
+    if (!id || mine) return;
     getRecipeDetails(id)
       .then((details) => {
-        if (details) setRecipe(details);
-        else setError('This recipe could not be found.');
+        if (details) setApiRecipe(details);
+        else setApiError('This recipe could not be found.');
       })
-      .catch(() => setError("Couldn't load this recipe. Check your internet connection."))
-      .finally(() => setLoading(false));
-  }, [id]);
+      .catch(() => setApiError("Couldn't load this recipe. Check your internet connection."))
+      .finally(() => setApiLoading(false));
+  }, [id, mine]);
+
+  // The user's own recipes come from Firestore, live, so edits show up right away
+  const myRecipes = useMyRecipes(user?.uid);
+  const myRecipe = mine ? myRecipes.recipes.find((r) => r.id === toFirestoreId(id)) : undefined;
+
+  const recipe = mine ? (myRecipe ? toRecipeDetails(myRecipe) : null) : apiRecipe;
+  const loading = mine ? myRecipes.loading : apiLoading;
+  const error = mine ? (myRecipe ? '' : 'This recipe could not be found.') : apiError;
+
+  function handleDelete() {
+    if (!user || !myRecipe) return;
+    const question = `Delete "${myRecipe.name}"? This can't be undone.`;
+    const remove = () => {
+      close();
+      deleteMyRecipe(user.uid, myRecipe.id);
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm(question)) remove();
+      return;
+    }
+    Alert.alert('Delete recipe', question, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: remove },
+    ]);
+  }
 
   // Which ingredients are already in the pantry (expired food doesn't count)
   useEffect(() => {
-    usablePantryIngredients(pantry.items).then((names) => setPantryNames([...names.keys()]));
-  }, [pantry.items]);
+    if (pantry.loading) return;
+    usablePantryIngredients(pantry.items).then((names) => {
+      setPantryNames([...names.keys()]);
+      setPantryReady(true);
+    });
+  }, [pantry.items, pantry.loading]);
+
+  // Week 10: what you'd need to buy, and which of those are already on the shopping list
+  const missing = recipe ? missingForRecipe(recipe.ingredients, pantryNames) : [];
+  const onList = new Set(shopping.items.filter((item) => !item.checked).map((item) => item.normalizedName));
+  // How many of them tapping the button would add (or update), using the same rules as the button
+  const plan = planAddToList(missing, recipe?.id ?? '', shopping.items);
+  const toAdd = plan.add.length + plan.merge.length;
+
+  async function handleAddMissing() {
+    if (!user || !recipe) return;
+    setAdding(true);
+    setAddMessage('');
+    try {
+      const { added, merged } = await addMissingToList(user.uid, recipe, missing, shopping.items);
+      const parts = [`Added ${added} ${added === 1 ? 'item' : 'items'} to your shopping list.`];
+      if (merged > 0) {
+        parts.push(`${merged} ${merged === 1 ? 'was' : 'were'} already on it, so the amount was updated.`);
+      }
+      setAddMessage(parts.join(' '));
+    } catch {
+      setAddMessage('Something went wrong. Check your internet connection.');
+    } finally {
+      setAdding(false);
+    }
+  }
 
   // Go back to the Recipes tab (or open it, if this page was loaded directly)
   const close = () => (router.canGoBack() ? router.back() : router.replace('/recipes'));
@@ -51,6 +114,18 @@ export default function RecipeScreen() {
           <Pressable onPress={close} hitSlop={12}>
             <ThemedText type="linkPrimary">‹ Back</ThemedText>
           </Pressable>
+          {myRecipe && (
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => router.push({ pathname: '/my-recipe-form', params: { id } })}
+                hitSlop={12}>
+                <ThemedText type="linkPrimary">Edit</ThemedText>
+              </Pressable>
+              <Pressable onPress={handleDelete} hitSlop={12}>
+                <ThemedText style={styles.error}>Delete</ThemedText>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         {loading ? (
@@ -59,17 +134,57 @@ export default function RecipeScreen() {
           <ThemedText style={[styles.message, styles.error]}>{error}</ThemedText>
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
-            <Image source={{ uri: recipe.thumbnail }} style={styles.photo} />
+            {recipe.thumbnail ? (
+              <Image source={{ uri: recipe.thumbnail }} style={styles.photo} />
+            ) : (
+              // Super easy meals have an emoji instead of a photo
+              <ThemedView type="backgroundElement" style={[styles.photo, styles.emojiPhoto]}>
+                <ThemedText style={styles.emoji}>{recipe.emoji ?? '🍽️'}</ThemedText>
+              </ThemedView>
+            )}
             <ThemedText type="subtitle">{recipe.name}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {[recipe.area, recipe.category].filter(Boolean).join(' · ')}
             </ThemedText>
+
+            {/* Week 10: one tap puts everything you're missing on the shopping list */}
+            {pantryReady && !shopping.loading && (
+              <View style={styles.shoppingBox}>
+                {missing.length === 0 ? (
+                  <ThemedText type="smallBold" style={styles.have}>
+                    ✓ You have everything for this recipe
+                  </ThemedText>
+                ) : toAdd === 0 ? (
+                  <ThemedText type="smallBold" style={styles.have}>
+                    ✓ Everything you're missing is on your shopping list
+                  </ThemedText>
+                ) : (
+                  <Pressable
+                    style={[styles.shoppingButton, adding && styles.disabled]}
+                    onPress={handleAddMissing}
+                    disabled={adding}>
+                    <ThemedText type="smallBold" style={styles.shoppingButtonText}>
+                      {adding
+                        ? 'Adding...'
+                        : `Add ${toAdd} missing ${toAdd === 1 ? 'ingredient' : 'ingredients'} to shopping list`}
+                    </ThemedText>
+                  </Pressable>
+                )}
+                {addMessage !== '' && <ThemedText type="small">{addMessage}</ThemedText>}
+                {missing.length > 0 && toAdd < missing.length && (
+                  <Pressable onPress={() => router.push('/shopping')} hitSlop={8}>
+                    <ThemedText type="linkPrimary">View shopping list</ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            )}
 
             <ThemedText type="smallBold" style={styles.sectionTitle}>
               Ingredients
             </ThemedText>
             {recipe.ingredients.map((ing, i) => {
               const have = pantryHas(ing.name, pantryNames);
+              const listed = !have && onList.has(listKey(ing.name));
               return (
                 <View key={i} style={styles.ingredientRow}>
                   <ThemedText style={[styles.mark, have ? styles.have : styles.need]}>{have ? '✓' : '○'}</ThemedText>
@@ -81,6 +196,11 @@ export default function RecipeScreen() {
                         {'  '}in your pantry
                       </ThemedText>
                     )}
+                    {listed && (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {'  '}on your shopping list
+                      </ThemedText>
+                    )}
                   </ThemedText>
                 </View>
               );
@@ -89,6 +209,9 @@ export default function RecipeScreen() {
             <ThemedText type="smallBold" style={styles.sectionTitle}>
               Instructions
             </ThemedText>
+            {recipe.steps.length === 0 && (
+              <ThemedText themeColor="textSecondary">The steps are on the original recipe, linked below.</ThemedText>
+            )}
             {recipe.steps.map((step, i) => (
               <View key={i} style={styles.stepRow}>
                 <ThemedText type="smallBold" style={styles.stepNumber}>
@@ -132,8 +255,14 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? Spacing.three : 0,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: Spacing.four,
   },
   content: {
     paddingHorizontal: Spacing.four,
@@ -145,6 +274,14 @@ const styles = StyleSheet.create({
     aspectRatio: 1.6,
     borderRadius: 12,
     marginBottom: Spacing.two,
+  },
+  emojiPhoto: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: {
+    fontSize: 96,
+    lineHeight: 110,
   },
   sectionTitle: {
     fontSize: 18,
@@ -183,6 +320,23 @@ const styles = StyleSheet.create({
   },
   stepText: {
     flex: 1,
+  },
+  shoppingBox: {
+    marginTop: Spacing.two,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+  },
+  shoppingButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two + Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  shoppingButtonText: {
+    color: '#ffffff',
+  },
+  disabled: {
+    opacity: 0.5,
   },
   links: {
     marginTop: Spacing.four,
