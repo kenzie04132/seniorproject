@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { ShoppingListItem } from "@/types/models";
 import { pantryCol, shoppingCol } from "./collections";
 import { db } from "./firebase";
+import { saveChange } from "./offline";
 import { guessCategory, listKey, planAddToList, RecipeIngredient } from "./shopping-logic";
 
 // ---------- Reading the list ----------
@@ -84,7 +85,7 @@ export async function addMissingToList(
       sourceRecipeNames: arrayUnion(recipe.name),
     });
   }
-  await batch.commit();
+  await saveChange(batch.commit()); // offline: saved on the device, syncs later
   return { added: plan.add.length, merged: plan.merge.length };
 }
 
@@ -94,32 +95,32 @@ export async function addItemByName(uid: string, name: string, currentList: Shop
   if (currentList.some((item) => !item.checked && item.normalizedName === key)) return false;
   const batch = writeBatch(db);
   batch.set(doc(shoppingCol(uid)), newRow(name, "", null));
-  await batch.commit();
+  await saveChange(batch.commit()); // offline: saved on the device, syncs later
   return true;
 }
 
 // ---------- Changing and removing ----------
 
 export function setChecked(uid: string, id: string, checked: boolean) {
-  return updateDoc(doc(shoppingCol(uid), id), { checked });
+  return saveChange(updateDoc(doc(shoppingCol(uid), id), { checked }));
 }
 
 export function deleteShoppingItem(uid: string, id: string) {
-  return deleteDoc(doc(shoppingCol(uid), id));
+  return saveChange(deleteDoc(doc(shoppingCol(uid), id)));
 }
 
 // Remove every checked item from the list
 export async function clearChecked(uid: string, items: ShoppingListItem[]) {
   const batch = writeBatch(db);
   items.filter((item) => item.checked).forEach((item) => batch.delete(doc(shoppingCol(uid), item.id)));
-  await batch.commit();
+  await saveChange(batch.commit()); // offline: saved on the device, syncs later
 }
 
 // Remove everything from the list
 export async function clearAll(uid: string, items: ShoppingListItem[]) {
   const batch = writeBatch(db);
   items.forEach((item) => batch.delete(doc(shoppingCol(uid), item.id)));
-  await batch.commit();
+  await saveChange(batch.commit()); // offline: saved on the device, syncs later
 }
 
 // Done shopping: put every checked item into the pantry and take it off the list.
@@ -146,6 +147,6 @@ export async function moveCheckedToPantry(uid: string, items: ShoppingListItem[]
     });
     batch.delete(doc(shoppingCol(uid), item.id));
   }
-  await batch.commit();
+  await saveChange(batch.commit()); // offline: saved on the device, syncs later
   return moved;
 }

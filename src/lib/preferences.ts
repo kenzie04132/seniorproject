@@ -2,6 +2,7 @@ import { arrayRemove, arrayUnion, onSnapshot, setDoc } from "firebase/firestore"
 import { useEffect, useState } from "react";
 
 import { userDoc } from "./collections";
+import { cachedJson } from "./offline";
 
 // ---------- Recipe preferences (saved on the users/{uid} profile) ----------
 //
@@ -68,9 +69,7 @@ export const POPULAR_AREAS = [
 
 // Regions TheMealDB has recipes for, split into popular ones and the rest (A-Z)
 export async function loadAreas(): Promise<{ popular: string[]; others: string[] }> {
-  const response = await fetch("https://www.themealdb.com/api/json/v1/1/list.php?a=list");
-  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
-  const data = await response.json();
+  const data = await cachedJson("https://www.themealdb.com/api/json/v1/1/list.php?a=list");
   const areas = new Set<string>( // a Set removes duplicates (TheMealDB lists some twice)
     (data.meals ?? [])
       .map((m: { strArea: string }) => m.strArea?.trim())

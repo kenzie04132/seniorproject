@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { UserRecipe } from "@/types/models";
 import { myRecipesCol } from "./collections";
+import { saveChange } from "./offline";
 import type { RecipeDetails } from "./recipes";
 
 // ---------- The user's own recipes (Week 10) ----------
@@ -72,15 +73,17 @@ export function toRecipeDetails(recipe: UserRecipe): RecipeDetails {
 }
 
 export function addMyRecipe(uid: string, recipe: NewUserRecipe) {
-  return addDoc(myRecipesCol(uid), { ...recipe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return saveChange(
+    addDoc(myRecipesCol(uid), { ...recipe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+  );
 }
 
 export function updateMyRecipe(uid: string, firestoreId: string, recipe: NewUserRecipe) {
-  return updateDoc(doc(myRecipesCol(uid), firestoreId), { ...recipe, updatedAt: serverTimestamp() });
+  return saveChange(updateDoc(doc(myRecipesCol(uid), firestoreId), { ...recipe, updatedAt: serverTimestamp() }));
 }
 
 export function deleteMyRecipe(uid: string, firestoreId: string) {
-  return deleteDoc(doc(myRecipesCol(uid), firestoreId));
+  return saveChange(deleteDoc(doc(myRecipesCol(uid), firestoreId)));
 }
 
 // ---------- Checking the form (plain logic, easy to unit test) ----------

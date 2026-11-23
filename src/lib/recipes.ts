@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { PantryItem } from "@/types/models";
 import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
+import { cachedJson } from "./offline";
 import { daysUntil } from "./pantry";
 import { RecipePreferences } from "./preferences";
 import { isSimpleMeal, simpleMealDetails } from "./simple-meals";
@@ -22,9 +23,7 @@ const MAX_RESULTS = 25;
 // All recipes that use one ingredient. TheMealDB wants "chicken_breast", not "chicken breast".
 export async function recipesWithIngredient(ingredient: string): Promise<MealSummary[]> {
   const query = encodeURIComponent(ingredient.trim().replace(/\s+/g, "_"));
-  const response = await fetch(`${API}/filter.php?i=${query}`);
-  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
-  const data = await response.json();
+  const data = await cachedJson(`${API}/filter.php?i=${query}`); // saved copy if offline
   return data.meals ?? []; // TheMealDB sends meals: null when nothing matches
 }
 
@@ -44,9 +43,7 @@ export type RecipeDetails = {
 // Everything about one recipe, for the recipe page
 export async function getRecipeDetails(id: string): Promise<RecipeDetails | null> {
   if (isSimpleMeal(id)) return simpleMealDetails(id); // built into the app, no internet needed
-  const response = await fetch(`${API}/lookup.php?i=${encodeURIComponent(id)}`);
-  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
-  const meal = (await response.json()).meals?.[0];
+  const meal = (await cachedJson(`${API}/lookup.php?i=${encodeURIComponent(id)}`)).meals?.[0];
   if (!meal) return null;
 
   // TheMealDB stores ingredients as strIngredient1..20 and strMeasure1..20
@@ -99,9 +96,7 @@ async function detailsWithRetry(id: string): Promise<RecipeDetails | null> {
 
 // Ids of every recipe from one region, e.g. all "Mexican" recipes
 async function recipeIdsFromArea(area: string): Promise<string[]> {
-  const response = await fetch(`${API}/filter.php?a=${encodeURIComponent(area)}`);
-  if (!response.ok) throw new Error(`TheMealDB returned ${response.status}`);
-  const data = await response.json();
+  const data = await cachedJson(`${API}/filter.php?a=${encodeURIComponent(area)}`);
   return (data.meals ?? []).map((meal: MealSummary) => meal.idMeal);
 }
 
@@ -119,8 +114,7 @@ async function recipeAreas(areas: string[]): Promise<Map<string, string>> {
 // Every ingredient name TheMealDB knows (about 600). Loaded once, then reused.
 let knownIngredients: Promise<string[]> | null = null;
 function loadKnownIngredients() {
-  knownIngredients ??= fetch(`${API}/list.php?i=list`)
-    .then((response) => response.json())
+  knownIngredients ??= cachedJson(`${API}/list.php?i=list`)
     .then((data) => (data.meals ?? []).map((m: { strIngredient: string }) => m.strIngredient))
     .catch(() => {
       knownIngredients = null; // try again next time

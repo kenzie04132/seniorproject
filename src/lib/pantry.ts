@@ -12,26 +12,32 @@ import { useEffect, useState } from "react";
 
 import { Category, NewPantryItem, PantryItem, Unit } from "@/types/models";
 import { pantryCol } from "./collections";
+import { saveChange } from "./offline";
 
 // ---------- Create, read, update, delete ----------
+// saveChange: offline, these finish right away instead of waiting for the internet (offline.ts)
 
 export function addPantryItem(uid: string, item: NewPantryItem) {
-  return addDoc(pantryCol(uid), {
-    ...item,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  return saveChange(
+    addDoc(pantryCol(uid), {
+      ...item,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
 }
 
 export function updatePantryItem(uid: string, id: string, changes: Partial<NewPantryItem>) {
-  return updateDoc(doc(pantryCol(uid), id), {
-    ...changes,
-    updatedAt: serverTimestamp(),
-  });
+  return saveChange(
+    updateDoc(doc(pantryCol(uid), id), {
+      ...changes,
+      updatedAt: serverTimestamp(),
+    })
+  );
 }
 
 export function deletePantryItem(uid: string, id: string) {
-  return deleteDoc(doc(pantryCol(uid), id));
+  return saveChange(deleteDoc(doc(pantryCol(uid), id)));
 }
 
 export async function getPantryItem(uid: string, id: string) {
