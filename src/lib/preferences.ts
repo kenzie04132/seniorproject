@@ -2,21 +2,28 @@ import { arrayRemove, arrayUnion, onSnapshot, setDoc } from "firebase/firestore"
 import { useEffect, useState } from "react";
 
 import { userDoc } from "./collections";
+import { Diet } from "./dietary";
 import { cachedJson } from "./offline";
 
 // ---------- Recipe preferences (saved on the users/{uid} profile) ----------
 //
 // hiddenRecipeIds: recipes the user tapped "Not interested" on. They never show again.
 // preferredAreas:  regions the user picked, e.g. ["Mexican", "Italian"]. Recipes from them come first.
+// dietaryPreferences: diets the user picked, e.g. ["vegetarian"]. Only recipes that fit are shown (Week 11).
 
 export type RecipePreferences = {
   hiddenRecipeIds: string[];
   preferredAreas: string[];
+  dietaryPreferences: Diet[];
 };
 
 // Live preferences: updates as soon as the user hides a recipe or picks a region
 export function useRecipePreferences(uid: string | undefined) {
-  const [prefs, setPrefs] = useState<RecipePreferences>({ hiddenRecipeIds: [], preferredAreas: [] });
+  const [prefs, setPrefs] = useState<RecipePreferences>({
+    hiddenRecipeIds: [],
+    preferredAreas: [],
+    dietaryPreferences: [],
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,6 +35,7 @@ export function useRecipePreferences(uid: string | undefined) {
         setPrefs({
           hiddenRecipeIds: data?.hiddenRecipeIds ?? [],
           preferredAreas: data?.preferredAreas ?? [],
+          dietaryPreferences: data?.dietaryPreferences ?? [],
         });
         setLoading(false);
       },
@@ -53,6 +61,15 @@ export function togglePreferredArea(uid: string, area: string, selected: boolean
   return setDoc(
     userDoc(uid),
     { preferredAreas: selected ? arrayUnion(area) : arrayRemove(area) },
+    { merge: true }
+  );
+}
+
+// Tick or untick one diet, e.g. "vegan"
+export function toggleDiet(uid: string, diet: Diet, selected: boolean) {
+  return setDoc(
+    userDoc(uid),
+    { dietaryPreferences: selected ? arrayUnion(diet) : arrayRemove(diet) },
     { merge: true }
   );
 }

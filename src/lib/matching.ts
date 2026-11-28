@@ -40,6 +40,7 @@ export type RankedRecipe = {
   haveCount: number; // recipe ingredients you already have
   totalCount: number; // recipe ingredients, not counting salt / pepper / water
   missingIngredients: string[]; // what you'd need to buy (Week 10 shopping list)
+  ingredients: string[]; // the recipe's full ingredient list, for the dietary filters (Week 11)
   difficulty: Difficulty;
   preferredArea: string | null; // which of the user's picked regions it's from, e.g. "Italian"
   ingredientsKnown: boolean; // false if the full recipe didn't load, so haveCount/totalCount are only a guess
@@ -135,6 +136,7 @@ export function scoreRecipe(
     haveCount,
     totalCount,
     missingIngredients,
+    ingredients: recipeIngredients,
     difficulty: recipeDifficulty(counted.length, instructionWords),
     preferredArea,
     ingredientsKnown,

@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { friendlyError } from '@/lib/errors';
 import { pantryHas } from '@/lib/matching';
 import { deleteMyRecipe, isMyRecipe, toFirestoreId, toRecipeDetails, useMyRecipes } from '@/lib/my-recipes';
 import { usePantryItems } from '@/lib/pantry';
@@ -41,7 +42,7 @@ export default function RecipeScreen() {
         if (details) setApiRecipe(details);
         else setApiError('This recipe could not be found.');
       })
-      .catch(() => setApiError("Couldn't load this recipe. Check your internet connection."))
+      .catch((e) => setApiError(friendlyError(e, 'load this recipe')))
       .finally(() => setApiLoading(false));
   }, [id, mine]);
 
@@ -97,8 +98,8 @@ export default function RecipeScreen() {
         parts.push(`${merged} ${merged === 1 ? 'was' : 'were'} already on it, so the amount was updated.`);
       }
       setAddMessage(parts.join(' '));
-    } catch {
-      setAddMessage('Something went wrong. Check your internet connection.');
+    } catch (e) {
+      setAddMessage(friendlyError(e, 'add these to your shopping list'));
     } finally {
       setAdding(false);
     }

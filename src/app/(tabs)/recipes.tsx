@@ -14,9 +14,11 @@ import {
   hideRecipe,
   loadAreas,
   showHiddenRecipes,
+  toggleDiet,
   togglePreferredArea,
   useRecipePreferences,
 } from '@/lib/preferences';
+import { Diet, DIETS, fitsDiets } from '@/lib/dietary';
 import { Difficulty } from '@/lib/matching';
 import { RankedRecipe, usablePantryIngredients, useRecipeMatches } from '@/lib/recipes';
 import { MY_RECIPE_EMOJI, toScreenId, useMyRecipes } from '@/lib/my-recipes';
@@ -31,14 +33,21 @@ export default function RecipesScreen() {
   const uid = user?.uid ?? '';
   const pantry = usePantryItems(user?.uid);
   const { prefs, loading: prefsLoading } = useRecipePreferences(user?.uid);
-  const { recipes, loading, error } = useRecipeMatches(pantry.items, prefs, pantry.loading || prefsLoading);
+  const { recipes, loading, error, retry } = useRecipeMatches(pantry.items, prefs, pantry.loading || prefsLoading);
 
   // Hide a recipe right away, without waiting for the search to run again
   const hidden = new Set(prefs.hiddenRecipeIds);
   const [difficulty, setDifficulty] = useState<RecipeView>('Any');
-  const visible = recipes.filter(
+  const notHidden = recipes.filter(
     (recipe) => !hidden.has(recipe.id) && (difficulty === 'Any' || recipe.difficulty === difficulty),
   );
+
+  // Week 11: dietary filters. If the full recipe didn't load we can't check its
+  // ingredients, so leave it out while a diet is picked.
+  const diets = prefs.dietaryPreferences;
+  const fitsDiet = (recipe: RankedRecipe) =>
+    diets.length === 0 || (recipe.ingredientsKnown && fitsDiets(recipe.ingredients, diets));
+  const visible = notHidden.filter(fitsDiet);
 
   // Week 10: built-in super easy meals and the user's own recipes,
   // ranked against the pantry the same way (no TheMealDB needed)
@@ -48,13 +57,16 @@ export default function RecipesScreen() {
     if (pantry.loading) return;
     usablePantryIngredients(pantry.items).then(setSoonest);
   }, [pantry.items, pantry.loading]);
-  const simpleMeals = rankSimpleMeals(soonest);
-  const mine = rankOwnRecipes(
+  const allSimpleMeals = rankSimpleMeals(soonest);
+  const allMine = rankOwnRecipes(
     myRecipes.recipes.map((r) => ({ ...r, id: toScreenId(r.id), emoji: MY_RECIPE_EMOJI })),
     soonest,
   );
   const ownView = difficulty === 'Super easy' || difficulty === 'Mine';
-  const listData = difficulty === 'Super easy' ? simpleMeals : difficulty === 'Mine' ? mine : visible;
+  const beforeDiet = difficulty === 'Super easy' ? allSimpleMeals : difficulty === 'Mine' ? allMine : notHidden;
+  const listData = ownView ? beforeDiet.filter(fitsDiet) : visible;
+  // True when there were recipes, but none fit the picked diets
+  const dietHidAll = diets.length > 0 && beforeDiet.length > 0 && listData.length === 0;
 
   // Only show the full-screen spinner the first time. After that, keep the old list
   // on screen while new results load, so hiding a recipe doesn't make the list flash.
@@ -80,12 +92,22 @@ export default function RecipesScreen() {
             onClear={() => clearPreferredAreas(uid)}
           />
           <DifficultyFilter selected={difficulty} onSelect={setDifficulty} />
+          <DietFilter selected={diets} onToggle={(diet, on) => toggleDiet(uid, diet, on)} />
         </View>
 
         {firstLoad && !ownView ? (
           <ActivityIndicator style={styles.message} color="#2e7d32" />
         ) : (error || pantry.error) && !ownView ? (
-          <ThemedText style={[styles.message, styles.error]}>{error || pantry.error}</ThemedText>
+          <View style={styles.errorBox}>
+            <ThemedText style={[styles.message, styles.error]}>{error || pantry.error}</ThemedText>
+            {error ? (
+              <Pressable onPress={retry} style={styles.addRecipeButton}>
+                <ThemedText type="smallBold" style={styles.regionSelectedText}>
+                  Try again
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
         ) : (
           <FlatList
             data={listData}
@@ -109,28 +131,34 @@ export default function RecipesScreen() {
                   </Pressable>
                 )}
                 {!ownView &&
-                  // Explain when the picked region has no recipes that use this pantry's food
-                  prefs.preferredAreas.length > 0 &&
-                  !loading &&
-                  visible.length > 0 &&
-                  !visible.some((r) => r.preferredArea) ? (
-                    <ThemedText type="small" themeColor="textSecondary">
-                      No recipes from your regions use the food in your pantry right now, so here are other ideas.
-                    </ThemedText>
-                  ) : null
-                }
+                // Explain when the picked region has no recipes that use this pantry's food
+                prefs.preferredAreas.length > 0 &&
+                !loading &&
+                visible.length > 0 &&
+                !visible.some((r) => r.preferredArea) ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    No recipes from your regions use the food in your pantry right now, so here are other ideas.
+                  </ThemedText>
+                ) : null}
+                {diets.length > 0 && listData.length > 0 && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Diet filters are a best guess from ingredient names, so always check food labels.
+                  </ThemedText>
+                )}
               </>
             }
             contentContainerStyle={styles.list}
             ListEmptyComponent={
               <ThemedText themeColor="textSecondary" style={styles.message}>
-                {difficulty === 'Mine'
-                  ? "You haven't added any recipes yet. Add a family recipe, or save one you found online."
-                  : pantry.items.length === 0
-                  ? 'Add items to your pantry to see recipes you can make.'
-                  : difficulty !== 'Any' && recipes.length > 0
-                    ? `No ${difficulty.toLowerCase()} recipes for the food in your pantry right now.`
-                    : 'No recipes found for the items in your pantry.'}
+                {dietHidAll
+                  ? 'No recipes fit your diet filters for the food in your pantry right now. Try turning one off.'
+                  : difficulty === 'Mine' && allMine.length === 0
+                    ? "You haven't added any recipes yet. Add a family recipe, or save one you found online."
+                    : pantry.items.length === 0
+                      ? 'Add items to your pantry to see recipes you can make.'
+                      : difficulty !== 'Any' && recipes.length > 0
+                        ? `No ${difficulty.toLowerCase()} recipes for the food in your pantry right now.`
+                        : 'No recipes found for the items in your pantry.'}
               </ThemedText>
             }
             ListFooterComponent={
@@ -245,34 +273,115 @@ function RegionPicker({
   );
 }
 
-// Any / Easy / Medium / Hard: only show recipes of that difficulty
-function DifficultyFilter({
+// A "Label: Choice ▾" button that opens a list, styled like the Regions button.
+// single: tapping an option picks it and closes the list (Difficulty).
+// multi: options tick on and off, then the user taps Done (Diet).
+function FilterDropdown<T extends string>({
+  label,
+  title,
+  options,
   selected,
-  onSelect,
+  onPress,
+  multi = false,
 }: {
-  selected: RecipeView;
-  onSelect: (view: RecipeView) => void;
+  label: string; // e.g. "Diet"
+  title: string; // shown at the top of the list
+  options: { value: T; label: string }[];
+  selected: T[];
+  onPress: (value: T) => void;
+  multi?: boolean;
 }) {
-  const options: RecipeView[] = ['Any', 'Super easy', 'Easy', 'Medium', 'Hard', 'Mine'];
-  const label = (option: RecipeView) =>
-    option === 'Any' ? 'Any difficulty' : option === 'Mine' ? 'Added by me' : option;
+  const [open, setOpen] = useState(false);
+  // Highlight the button green when it's filtering something
+  // (for single choice, the first option means "no filter")
+  const active = multi ? selected.length > 0 : selected[0] !== options[0].value;
+  const names = options.filter((o) => selected.includes(o.value)).map((o) => o.label);
+  // "Any", "Vegan", or "Vegan +1"
+  const summary = !active ? 'Any' : names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`;
+
   return (
-    <View style={styles.difficultyRow}>
-      {options.map((option) => {
-        const isSelected = option === selected;
-        return (
-          <Pressable key={option} onPress={() => onSelect(option)}>
-            <ThemedView
-              type={isSelected ? undefined : 'backgroundElement'}
-              style={[styles.regionButton, isSelected && styles.regionSelected]}>
-              <ThemedText type="small" style={isSelected && styles.regionSelectedText}>
-                {label(option)}
+    <View style={styles.regionRow}>
+      <Pressable onPress={() => setOpen(true)}>
+        <ThemedView
+          type={active ? undefined : 'backgroundElement'}
+          style={[styles.regionButton, active && styles.regionSelected]}>
+          <ThemedText type="small" style={active && styles.regionSelectedText}>
+            {label}: {summary} ▾
+          </ThemedText>
+        </ThemedView>
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+          <Pressable style={styles.sheetArea} onPress={(event) => event.stopPropagation()}>
+            <ThemedView style={styles.sheet}>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>
+                {title}
               </ThemedText>
+              {options.map((option) => {
+                const checked = selected.includes(option.value);
+                return (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => {
+                      onPress(option.value);
+                      if (!multi) setOpen(false);
+                    }}
+                    style={styles.regionOption}>
+                    <ThemedText style={[styles.checkbox, checked && styles.regionOptionSelected]}>
+                      {multi ? (checked ? '☑' : '☐') : checked ? '◉' : '○'}
+                    </ThemedText>
+                    <ThemedText style={checked && styles.regionOptionSelected}>{option.label}</ThemedText>
+                  </Pressable>
+                );
+              })}
+              {multi && (
+                <Pressable onPress={() => setOpen(false)} style={styles.doneButton}>
+                  <ThemedText style={styles.doneText}>Done</ThemedText>
+                </Pressable>
+              )}
             </ThemedView>
           </Pressable>
-        );
-      })}
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+// Any / Super easy / Easy / Medium / Hard / Added by me: pick one
+const DIFFICULTY_OPTIONS: { value: RecipeView; label: string }[] = [
+  { value: 'Any', label: 'Any difficulty' },
+  { value: 'Super easy', label: 'Super easy' },
+  { value: 'Easy', label: 'Easy' },
+  { value: 'Medium', label: 'Medium' },
+  { value: 'Hard', label: 'Hard' },
+  { value: 'Mine', label: 'Added by me' },
+];
+
+function DifficultyFilter({ selected, onSelect }: { selected: RecipeView; onSelect: (view: RecipeView) => void }) {
+  return (
+    <FilterDropdown
+      label="Difficulty"
+      title="Show recipes that are"
+      options={DIFFICULTY_OPTIONS}
+      selected={[selected]}
+      onPress={onSelect}
+    />
+  );
+}
+
+// Vegetarian / Vegan / Gluten-free / Dairy-free: tick any number of them.
+// Choices are saved to the user's profile, so they stay on next time.
+function DietFilter({ selected, onToggle }: { selected: Diet[]; onToggle: (diet: Diet, on: boolean) => void }) {
+  return (
+    <FilterDropdown
+      label="Diet"
+      title="Only show recipes that are"
+      options={DIETS.map(({ id, label }) => ({ value: id, label }))}
+      selected={selected}
+      onPress={(diet) => onToggle(diet, !selected.includes(diet))}
+      multi
+    />
   );
 }
 
@@ -533,5 +642,10 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#d93025',
+  },
+  errorBox: {
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.four,
   },
 });

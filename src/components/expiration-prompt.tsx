@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatDateInput, parseDateInput, updatePantryItem } from '@/lib/pantry';
+import { friendlyError } from '@/lib/errors';
 
 type MovedItem = { id: string; name: string };
 
@@ -73,8 +74,8 @@ export function ExpirationPrompt({
         `Moved ${count} ${count === 1 ? 'item' : 'items'} to your pantry` +
           (skipped > 0 ? `. ${skipped} still need an expiration date.` : ' with their expiration dates.')
       );
-    } catch {
-      setError('Something went wrong. Check your internet connection.');
+    } catch (e) {
+      setError(friendlyError(e, 'move these items to your pantry'));
     } finally {
       setSaving(false);
     }

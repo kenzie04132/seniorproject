@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { ShoppingListItem } from "@/types/models";
 import { pantryCol, shoppingCol } from "./collections";
+import { friendlyError } from "./errors";
 import { db } from "./firebase";
 import { saveChange } from "./offline";
 import { guessCategory, listKey, planAddToList, RecipeIngredient } from "./shopping-logic";
@@ -32,8 +33,8 @@ export function useShoppingList(uid: string | undefined) {
         setError("");
         setLoading(false);
       },
-      () => {
-        setError("Couldn't load your shopping list. Check your internet connection.");
+      (e) => {
+        setError(friendlyError(e, "load your shopping list"));
         setLoading(false);
       }
     );

@@ -4,6 +4,7 @@ import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { friendlyError } from '@/lib/errors';
 import { clearPantry, loadTestPantry } from '@/lib/test-data';
 
 // Two small buttons for testing. They only show while running with `npx expo start`
@@ -21,8 +22,8 @@ export function TestDataButtons() {
     try {
       await action();
       setMessage(doneMessage);
-    } catch {
-      setMessage('Something went wrong. Check your internet connection.');
+    } catch (e) {
+      setMessage(friendlyError(e, 'finish that'));
     } finally {
       setBusy(false);
     }

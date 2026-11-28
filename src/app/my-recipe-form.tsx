@@ -8,6 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
+import { friendlyError } from '@/lib/errors';
 import {
   addMyRecipe,
   checkRecipeForm,
@@ -57,7 +58,7 @@ export default function MyRecipeFormScreen() {
         setIngredients([...recipe.ingredients, { measure: '', name: '' }]);
         setStepsText(recipe.steps.join('\n'));
       })
-      .catch(() => setError("Couldn't load this recipe. Check your internet connection."))
+      .catch((e) => setError(friendlyError(e, 'load this recipe')))
       .finally(() => setLoading(false));
   }, [user, id]);
 
@@ -96,8 +97,8 @@ export default function MyRecipeFormScreen() {
       if (id) await updateMyRecipe(user.uid, toFirestoreId(id), result.recipe);
       else await addMyRecipe(user.uid, result.recipe);
       close();
-    } catch {
-      setError('Something went wrong. Check your internet connection.');
+    } catch (e) {
+      setError(friendlyError(e, 'save your recipe'));
       setSaving(false);
     }
   }

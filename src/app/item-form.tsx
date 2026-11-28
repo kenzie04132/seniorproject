@@ -32,6 +32,7 @@ import { Category, Unit } from '@/types/models';
 
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { lookupBarcode } from '@/lib/barcode';
+import { friendlyError } from '@/lib/errors';
 
 export default function ItemFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -67,7 +68,7 @@ export default function ItemFormScreen() {
         setExpiration(formatDateInput(item.expirationDate));
         setBarcode(item.barcode ?? '');
       })
-      .catch(() => setError("Couldn't load this item."))
+      .catch((e) => setError(friendlyError(e, 'load this item')))
       .finally(() => setLoading(false));
   }, [user, id]);
 
@@ -108,8 +109,8 @@ export default function ItemFormScreen() {
         await addPantryItem(user.uid, { ...item, lowStockThreshold: null });
       }
       close();
-    } catch {
-      setError("Couldn't save. Check your internet connection and try again.");
+    } catch (e) {
+      setError(friendlyError(e, 'save this item'));
       setSaving(false);
     }
   }
@@ -127,8 +128,8 @@ export default function ItemFormScreen() {
       }
       setName(product.name);
       setCategory(product.category);
-    } catch {
-      setError("Couldn't look up the barcode. Check your internet connection.");
+    } catch (e) {
+      setError(friendlyError(e, 'look up the barcode') + ' You can also type the details yourself.');
     } finally {
       setLookingUp(false);
     }
@@ -147,8 +148,8 @@ export default function ItemFormScreen() {
     try {
       await deletePantryItem(user.uid, id);
       close();
-    } catch {
-      setError("Couldn't delete. Check your internet connection and try again.");
+    } catch (e) {
+      setError(friendlyError(e, 'delete this item'));
       setSaving(false);
     }
   }

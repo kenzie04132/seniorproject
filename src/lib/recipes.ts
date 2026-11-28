@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { PantryItem } from "@/types/models";
+import { friendlyError } from "./errors";
 import { byBestMatch, MatchedIngredient, RankedRecipe, scoreRecipe, toMealDbName, urgencyPoints } from "./matching";
 import { cachedJson } from "./offline";
 import { daysUntil } from "./pantry";
@@ -216,6 +217,7 @@ export function useRecipeMatches(items: PantryItem[], prefs: RecipePreferences, 
   const [recipes, setRecipes] = useState<RankedRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0); // goes up when the user taps "Try again"
 
   // Search again when names or expiration dates change, not on every quantity edit
   // or when the user hides a recipe or picks a region
@@ -233,8 +235,8 @@ export function useRecipeMatches(items: PantryItem[], prefs: RecipePreferences, 
         setRecipes(list);
         setError("");
       })
-      .catch(() => {
-        if (!cancelled) setError("Couldn't load recipes. Check your internet connection.");
+      .catch((e) => {
+        if (!cancelled) setError(friendlyError(e, "load recipes"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -243,7 +245,7 @@ export function useRecipeMatches(items: PantryItem[], prefs: RecipePreferences, 
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, waiting]);
+  }, [key, waiting, attempt]);
 
-  return { recipes, loading, error };
+  return { recipes, loading, error, retry: () => setAttempt((n) => n + 1) };
 }

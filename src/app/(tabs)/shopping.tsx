@@ -18,6 +18,7 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
+import { friendlyError } from '@/lib/errors';
 import { capitalize, daysUntil, usePantryItems } from '@/lib/pantry';
 import {
   addItemByName,
@@ -63,8 +64,8 @@ export default function ShoppingScreen() {
     setMessage('');
     try {
       setMessage(await action());
-    } catch {
-      setMessage('Something went wrong. Check your internet connection.');
+    } catch (e) {
+      setMessage(friendlyError(e, 'update your shopping list'));
     } finally {
       setBusy(false);
     }

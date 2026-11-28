@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 
 import { Category, NewPantryItem, PantryItem, Unit } from "@/types/models";
 import { pantryCol } from "./collections";
+import { friendlyError } from "./errors";
 import { saveChange } from "./offline";
 
 // ---------- Create, read, update, delete ----------
@@ -63,8 +64,8 @@ export function usePantryItems(uid: string | undefined) {
         setError("");
         setLoading(false);
       },
-      () => {
-        setError("Couldn't load your pantry. Check your internet connection.");
+      (e) => {
+        setError(friendlyError(e, "load your pantry"));
         setLoading(false);
       }
     );
