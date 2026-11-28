@@ -1,15 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -21,6 +12,7 @@ import {
   addPantryItem,
   capitalize,
   CATEGORIES,
+  categoryLabel,
   deletePantryItem,
   formatDateInput,
   getPantryItem,
@@ -86,10 +78,8 @@ export default function ItemFormScreen() {
     const expirationDate = expiration.trim() ? parseDateInput(expiration) : null;
 
     if (!trimmedName) return setError('Please enter a name.');
-    if (!quantity.trim() || isNaN(amount) || amount <= 0)
-      return setError('Quantity must be a number greater than 0.');
-    if (expiration.trim() && !expirationDate)
-      return setError('Enter the date as YYYY-MM-DD, for example 2026-10-20.');
+    if (!quantity.trim() || isNaN(amount) || amount <= 0) return setError('Quantity must be a number greater than 0.');
+    if (expiration.trim() && !expirationDate) return setError('Enter the date as YYYY-MM-DD, for example 2026-10-20.');
 
     const item = {
       name: trimmedName,
@@ -234,7 +224,7 @@ export default function ItemFormScreen() {
           <ChipRow options={UNITS} selected={unit} onSelect={setUnit} capitalizeLabels={false} />
 
           <ThemedText type="smallBold">Category</ThemedText>
-          <ChipRow options={CATEGORIES} selected={category} onSelect={setCategory} />
+          <ChipRow options={CATEGORIES} selected={category} onSelect={setCategory} label={categoryLabel} />
 
           <ThemedText type="smallBold">Expiration date (optional)</ThemedText>
           <TextInput
@@ -264,11 +254,7 @@ export default function ItemFormScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaView>
-      <BarcodeScanner
-        visible={scanning}
-        onScanned={handleScanned}
-        onClose={() => setScanning(false)}
-      />
+      <BarcodeScanner visible={scanning} onScanned={handleScanned} onClose={() => setScanning(false)} />
     </ThemedView>
   );
 }
@@ -279,11 +265,13 @@ function ChipRow<T extends string>({
   selected,
   onSelect,
   capitalizeLabels = true,
+  label,
 }: {
   options: T[];
   selected: T;
   onSelect: (value: T) => void;
   capitalizeLabels?: boolean;
+  label?: (value: T) => string; // e.g. "🥬 Produce"
 }) {
   return (
     <View style={styles.chipRow}>
@@ -295,7 +283,7 @@ function ChipRow<T extends string>({
               type={isSelected ? undefined : 'backgroundElement'}
               style={[styles.chip, isSelected && styles.chipSelected]}>
               <ThemedText type="small" style={isSelected && styles.chipSelectedText}>
-                {capitalizeLabels ? capitalize(option) : option}
+                {label ? label(option) : capitalizeLabels ? capitalize(option) : option}
               </ThemedText>
             </ThemedView>
           </Pressable>

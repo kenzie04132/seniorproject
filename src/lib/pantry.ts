@@ -146,3 +146,21 @@ export const UNITS: Unit[] = ["count", "g", "kg", "oz", "lb", "ml", "l", "cup", 
 export function capitalize(word: string) {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
+
+// A food icon for each category, shown on cards, chips and list sections (Week 11 polish)
+export const CATEGORY_EMOJI: Record<Category, string> = {
+  produce: "🥬",
+  dairy: "🥛",
+  meat: "🥩",
+  grains: "🍞",
+  canned: "🥫",
+  frozen: "🧊",
+  spices: "🌶️",
+  beverages: "🥤",
+  other: "🛒",
+};
+
+// "produce" -> "🥬 Produce"
+export function categoryLabel(category: Category) {
+  return `${CATEGORY_EMOJI[category]} ${capitalize(category)}`;
+}

@@ -1,19 +1,10 @@
-import {
-  TabList,
-  TabListProps,
-  Tabs,
-  TabSlot,
-  TabTrigger,
-  TabTriggerSlotProps,
-} from 'expo-router/ui';
-import { SymbolView } from 'expo-symbols';
-import { Pressable, StyleSheet, useColorScheme, View } from 'react-native';
+import { TabList, TabListProps, Tabs, TabSlot, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ExternalLink } from './external-link';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 
 export default function AppTabs() {
   return (
@@ -22,13 +13,13 @@ export default function AppTabs() {
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>Pantry</TabButton>
+            <TabButton>🥫 Pantry</TabButton>
           </TabTrigger>
           <TabTrigger name="recipes" href="/recipes" asChild>
-            <TabButton>Recipes</TabButton>
+            <TabButton>🍳 Recipes</TabButton>
           </TabTrigger>
           <TabTrigger name="shopping" href="/shopping" asChild>
-            <TabButton>Shopping List</TabButton>
+            <TabButton>🛒 Shopping List</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>
@@ -39,10 +30,12 @@ export default function AppTabs() {
 export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
-      <ThemedView
-        type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
-        style={styles.tabButtonView}>
-        <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
+      {/* The open tab is green, like the selected filter chips */}
+      <ThemedView type="backgroundElement" style={[styles.tabButtonView, isFocused && styles.tabSelected]}>
+        <ThemedText
+          type="small"
+          themeColor={isFocused ? 'text' : 'textSecondary'}
+          style={isFocused && styles.tabSelectedText}>
           {children}
         </ThemedText>
       </ThemedView>
@@ -51,28 +44,14 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
 }
 
 export function CustomTabList(props: TabListProps) {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
-
   return (
     <View {...props} style={styles.tabListContainer}>
       <ThemedView type="backgroundElement" style={styles.innerContainer}>
         <ThemedText type="smallBold" style={styles.brandText}>
-          SmartPantry
+          🥫 SmartPantry
         </ThemedText>
 
         {props.children}
-
-        <ExternalLink href="https://docs.expo.dev" asChild>
-          <Pressable style={styles.externalPressable}>
-            <ThemedText type="link">Docs</ThemedText>
-            <SymbolView
-              tintColor={colors.text}
-              name={{ ios: 'arrow.up.right.square', web: 'link' }}
-              size={12}
-            />
-          </Pressable>
-        </ExternalLink>
       </ThemedView>
     </View>
   );
@@ -99,6 +78,14 @@ const styles = StyleSheet.create({
   },
   brandText: {
     marginRight: 'auto',
+    color: '#4caf50',
+    fontSize: 18,
+  },
+  tabSelected: {
+    backgroundColor: '#2e7d32',
+  },
+  tabSelectedText: {
+    color: '#ffffff',
   },
   pressed: {
     opacity: 0.7,
@@ -107,12 +94,5 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,
-  },
-  externalPressable: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.one,
-    marginLeft: Spacing.three,
   },
 });

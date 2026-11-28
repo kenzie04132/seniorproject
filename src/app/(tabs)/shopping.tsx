@@ -1,15 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  SectionList,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExpirationPrompt } from '@/components/expiration-prompt';
@@ -19,7 +10,7 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
 import { friendlyError } from '@/lib/errors';
-import { capitalize, daysUntil, usePantryItems } from '@/lib/pantry';
+import { capitalize, categoryLabel, daysUntil, usePantryItems } from '@/lib/pantry';
 import {
   addItemByName,
   clearAll,
@@ -45,7 +36,7 @@ export default function ShoppingScreen() {
   // Items just moved to the pantry; while set, the "Add expiration dates now?" prompt shows
   const [movedItems, setMovedItems] = useState<{ id: string; name: string }[] | null>(null);
 
-  const sections = groupForDisplay(items, capitalize);
+  const sections = groupForDisplay(items, categoryLabel);
   const toBuy = items.filter((item) => !item.checked).length;
   const checkedCount = items.length - toBuy;
 
@@ -179,14 +170,18 @@ export default function ShoppingScreen() {
             renderItem={({ item }) => (
               <ListRow
                 item={item}
-                onToggle={() => run(async () => {
-                  await setChecked(uid, item.id, !item.checked);
-                  return '';
-                })}
-                onDelete={() => run(async () => {
-                  await deleteShoppingItem(uid, item.id);
-                  return '';
-                })}
+                onToggle={() =>
+                  run(async () => {
+                    await setChecked(uid, item.id, !item.checked);
+                    return '';
+                  })
+                }
+                onDelete={() =>
+                  run(async () => {
+                    await deleteShoppingItem(uid, item.id);
+                    return '';
+                  })
+                }
               />
             )}
             ListEmptyComponent={
@@ -218,10 +213,12 @@ export default function ShoppingScreen() {
                     </ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => run(async () => {
+                    onPress={() =>
+                      run(async () => {
                         await clearChecked(uid, items);
                         return '';
-                      })}
+                      })
+                    }
                     disabled={busy}
                     hitSlop={8}>
                     <ThemedText type="small" themeColor="textSecondary">
@@ -248,19 +245,8 @@ export default function ShoppingScreen() {
 }
 
 // One item: tap the circle (or the name) to check it off, tap ✕ to remove it
-function ListRow({
-  item,
-  onToggle,
-  onDelete,
-}: {
-  item: ShoppingListItem;
-  onToggle: () => void;
-  onDelete: () => void;
-}) {
-  const details = [
-    item.measure,
-    item.sourceRecipeNames?.length ? `for ${item.sourceRecipeNames.join(', ')}` : '',
-  ]
+function ListRow({ item, onToggle, onDelete }: { item: ShoppingListItem; onToggle: () => void; onDelete: () => void }) {
+  const details = [item.measure, item.sourceRecipeNames?.length ? `for ${item.sourceRecipeNames.join(', ')}` : '']
     .filter(Boolean)
     .join(' · ');
 

@@ -10,7 +10,16 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { auth } from '@/lib/firebase';
-import { capitalize, CATEGORIES, daysUntil, expiryColor, expiryLabel, usePantryItems } from '@/lib/pantry';
+import {
+  capitalize,
+  CATEGORIES,
+  CATEGORY_EMOJI,
+  categoryLabel,
+  daysUntil,
+  expiryColor,
+  expiryLabel,
+  usePantryItems,
+} from '@/lib/pantry';
 import { Category, PantryItem } from '@/types/models';
 
 export default function PantryScreen() {
@@ -22,6 +31,11 @@ export default function PantryScreen() {
   const usedCategories = CATEGORIES.filter((c) => items.some((item) => item.category === c));
   const visibleItems = filter === 'all' ? items : items.filter((item) => item.category === filter);
 
+  // Summary at the top: how much needs using up soon
+  const days = items.map((item) => daysUntil(item.expirationDate));
+  const expired = days.filter((d) => d !== null && d < 0).length;
+  const soon = days.filter((d) => d !== null && d >= 0 && d <= 7).length;
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -32,13 +46,21 @@ export default function PantryScreen() {
           </Pressable>
         </View>
 
+        {items.length > 0 && (
+          <View style={styles.summaryRow}>
+            <SummaryStat value={items.length} label={items.length === 1 ? 'item' : 'items'} color="#4caf50" />
+            <SummaryStat value={soon} label="expiring this week" color="#f29900" />
+            <SummaryStat value={expired} label="expired" color="#d93025" />
+          </View>
+        )}
+
         <TestDataButtons />
 
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
             <FilterChip label="All" selected={filter === 'all'} onPress={() => setFilter('all')} />
             {usedCategories.map((c) => (
-              <FilterChip key={c} label={capitalize(c)} selected={filter === c} onPress={() => setFilter(c)} />
+              <FilterChip key={c} label={categoryLabel(c)} selected={filter === c} onPress={() => setFilter(c)} />
             ))}
           </ScrollView>
         </View>
@@ -74,7 +96,9 @@ export default function PantryScreen() {
 function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress}>
-      <ThemedView type={selected ? undefined : 'backgroundElement'} style={[styles.chip, selected && styles.chipSelected]}>
+      <ThemedView
+        type={selected ? undefined : 'backgroundElement'}
+        style={[styles.chip, selected && styles.chipSelected]}>
         <ThemedText type="small" style={selected && styles.chipSelectedText}>
           {label}
         </ThemedText>
@@ -83,13 +107,30 @@ function FilterChip({ label, selected, onPress }: { label: string; selected: boo
   );
 }
 
+// One number in the summary row, e.g. "4 expiring this week"
+function SummaryStat({ value, label, color }: { value: number; label: string; color: string }) {
+  return (
+    <ThemedView type="backgroundElement" style={styles.stat}>
+      <ThemedText style={[styles.statValue, { color }]}>{value}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        {label}
+      </ThemedText>
+    </ThemedView>
+  );
+}
+
 // One pantry item. Tap it to edit or delete.
+// The colored stripe and pill show how soon it expires (red, orange, or gray).
 function ItemCard({ item }: { item: PantryItem }) {
   const days = daysUntil(item.expirationDate);
+  const color = expiryColor(days);
 
   return (
     <Pressable onPress={() => router.push({ pathname: '/item-form', params: { id: item.id } })}>
-      <ThemedView type="backgroundElement" style={styles.card}>
+      <ThemedView type="backgroundElement" style={[styles.card, { borderLeftColor: color }]}>
+        <View style={styles.iconCircle}>
+          <ThemedText style={styles.icon}>{CATEGORY_EMOJI[item.category]}</ThemedText>
+        </View>
         <View style={styles.cardText}>
           <ThemedText type="smallBold" style={styles.itemName}>
             {item.name}
@@ -98,7 +139,10 @@ function ItemCard({ item }: { item: PantryItem }) {
             {item.quantity} {item.unit} · {capitalize(item.category)}
           </ThemedText>
         </View>
-        <ThemedText type="smallBold" style={{ color: expiryColor(days) }}>
+        <ThemedText
+          type="small"
+          style={[styles.expiryPill, { color, borderColor: color, backgroundColor: color + '22' }]}>
+          {days !== null && days >= 0 && days <= 7 ? '⏰ ' : ''}
           {expiryLabel(days)}
         </ThemedText>
       </ThemedView>
@@ -149,9 +193,50 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.three,
     borderRadius: 12,
+    borderLeftWidth: 5,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.three,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+  },
+  icon: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  expiryPill: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    fontWeight: 'bold',
+    overflow: 'hidden',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+  },
+  stat: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.one,
+    borderRadius: 12,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   cardText: {
     flex: 1,
